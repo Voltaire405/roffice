@@ -9,11 +9,14 @@ const https = require("https");
 const http = require("http");
 const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, HeadObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const store = require("./redis-store");
+const instanceManager = require("./instance-manager");
+const { logger, requestLogger } = require("./logger");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "my-secret-key-change-me";
-const ONLYOFFICE_URL = process.env.ONLYOFFICE_URL || "http://localhost:8080";
+const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:8080,http://localhost:8081,http://localhost:8082";
 const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:3000";
 
 // ── Cloudflare R2 ────────────────────────────────────────────
@@ -31,6 +34,7 @@ const s3 = new S3Client({
 });
 
 // ── Middleware ────────────────────────────────────────────────
+app.use(requestLogger);
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -109,23 +113,36 @@ function signConfig(config) {
 }
 
 /** Descarga un archivo de una URL y lo devuelve como Buffer */
-function downloadToBuffer(url) {
+function downloadToBuffer(url, redirectCount = 0) {
   return new Promise((resolve, reject) => {
+    logger.debug("Download", "Descargando archivo", { url, redirectCount });
     const protocol = url.startsWith("https") ? https : http;
     protocol.get(url, (response) => {
       if (response.statusCode === 301 || response.statusCode === 302) {
-        return downloadToBuffer(response.headers.location).then(resolve).catch(reject);
+        const location = response.headers.location;
+        logger.info("Download", `Redirect ${response.statusCode}`, { from: url, to: location, redirectCount: redirectCount + 1 });
+        return downloadToBuffer(location, redirectCount + 1).then(resolve).catch(reject);
+      }
+      if (response.statusCode !== 200) {
+        logger.warn("Download", `Respuesta inesperada`, { url, status: response.statusCode });
       }
       const chunks = [];
       response.on("data", (chunk) => chunks.push(chunk));
-      response.on("end", () => resolve(Buffer.concat(chunks)));
+      response.on("end", () => {
+        const buffer = Buffer.concat(chunks);
+        logger.debug("Download", "Descarga completada", { url, size: `${buffer.length} bytes` });
+        resolve(buffer);
+      });
       response.on("error", reject);
-    }).on("error", reject);
+    }).on("error", (err) => {
+      logger.error("Download", "Error de conexión", { url, error: err.message });
+      reject(err);
+    });
   });
 }
 
-// Mapa en memoria: document.key → filename (para resolver en callback)
-const keyToFilename = new Map();
+// Inicializar el pool de instancias de OnlyOffice
+instanceManager.init(ONLYOFFICE_INSTANCES);
 
 // ── Rutas API ────────────────────────────────────────────────
 
@@ -134,6 +151,7 @@ const keyToFilename = new Map();
 app.get("/files/:filename", async (req, res) => {
   const { filename } = req.params;
   try {
+    logger.debug("Proxy", "Sirviendo archivo desde R2", { filename, r2Key: r2Key(filename) });
     const command = new GetObjectCommand({ Bucket: R2_BUCKET, Key: r2Key(filename) });
     const result = await s3.send(command);
 
@@ -145,9 +163,10 @@ app.get("/files/:filename", async (req, res) => {
     result.Body.pipe(res);
   } catch (err) {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      logger.warn("Proxy", "Archivo no encontrado", { filename });
       return res.status(404).json({ error: "Archivo no encontrado" });
     }
-    console.error("[Proxy] Error sirviendo archivo:", err.message);
+    logger.error("Proxy", "Error sirviendo archivo", { filename, error: err.message });
     res.status(500).json({ error: "Error descargando archivo" });
   }
 });
@@ -198,14 +217,19 @@ app.get("/api/editor-config/:filename", async (req, res) => {
     const ext = path.extname(filename).replace(".", "");
     const documentKey = generateDocumentKey(filename, head.LastModified);
 
+    // Asignar instancia de OnlyOffice (sticky por documento)
+    const instanceUrl = await instanceManager.assignInstance(filename);
+    logger.info("Router", "Documento asignado a instancia", { filename, instance: instanceUrl, key: documentKey, mode });
+
+    // Guardar mapeos en Redis
+    await store.assignDocument(filename, instanceUrl, documentKey);
+    await store.setKeyMapping(documentKey, filename);
+
     // URL del documento vía proxy del backend (accesible desde Docker)
     const fileUrl = `${BACKEND_URL}/files/${encodeURIComponent(filename)}`;
 
     // Callback sigue apuntando al backend vía host.docker.internal
     const callbackUrl = `${BACKEND_URL}/api/callback`;
-
-    // Guardar mapeo key → filename para resolver en callback
-    keyToFilename.set(documentKey, filename);
 
     const config = {
       height: "100%",
@@ -251,13 +275,13 @@ app.get("/api/editor-config/:filename", async (req, res) => {
 
     res.json({
       config,
-      onlyofficeUrl: ONLYOFFICE_URL,
+      onlyofficeUrl: instanceUrl,
     });
   } catch (err) {
     if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404) {
       return res.status(404).json({ error: "Documento no encontrado en R2" });
     }
-    console.error("[R2] Error obteniendo config:", err.message);
+    logger.error("Router", "Error obteniendo config", { filename, error: err.message });
     res.status(500).json({ error: "Error obteniendo documento" });
   }
 });
@@ -266,7 +290,7 @@ app.get("/api/editor-config/:filename", async (req, res) => {
 app.post("/api/callback", async (req, res) => {
   const body = req.body;
 
-  console.log("[Callback] Status:", body.status, "| Key:", body.key);
+  logger.info("Callback", "Callback recibido", { status: body.status, key: body.key, users: body.users });
 
   /**
    * Estados del callback:
@@ -281,20 +305,21 @@ app.post("/api/callback", async (req, res) => {
     const downloadUrl = body.url;
 
     if (!downloadUrl) {
-      console.error("[Callback] No se recibió URL de descarga");
+      logger.error("Callback", "No se recibió URL de descarga", { key: body.key });
       return res.json({ error: 0 });
     }
 
-    // Resolver filename desde el key
-    const targetFile = keyToFilename.get(body.key);
+    // Resolver filename desde Redis
+    const targetFile = await store.getFilenameByKey(body.key);
 
     if (!targetFile) {
-      console.warn("[Callback] No se encontró archivo para key:", body.key);
+      logger.warn("Callback", "No se encontró archivo para key", { key: body.key });
       return res.json({ error: 0 });
     }
 
     try {
-      console.log("[Callback] Descargando documento actualizado:", targetFile);
+      const instanceUrl = await instanceManager.getInstanceForDocument(targetFile);
+      logger.info("Callback", "Guardando documento", { filename: targetFile, instance: instanceUrl, downloadUrl, status: body.status });
 
       // Descargar el archivo desde OnlyOffice
       const fileBuffer = await downloadToBuffer(downloadUrl);
@@ -308,15 +333,21 @@ app.post("/api/callback", async (req, res) => {
       });
       await s3.send(putCommand);
 
-      console.log("[Callback] Documento guardado en R2:", r2Key(targetFile));
+      logger.info("Callback", "Documento guardado en R2", { filename: targetFile, r2Key: r2Key(targetFile) });
 
-      // Actualizar el key en el mapa (el mtime cambió)
+      // Actualizar key mapping en Redis (el mtime cambió)
       const head = await headObject(targetFile);
       const newKey = generateDocumentKey(targetFile, head.LastModified);
-      keyToFilename.delete(body.key);
-      keyToFilename.set(newKey, targetFile);
+      await store.removeKeyMapping(body.key);
+      await store.setKeyMapping(newKey, targetFile);
+      logger.debug("Callback", "Key mapping actualizado", { oldKey: body.key, newKey, filename: targetFile });
+
+      // Actualizar la asignación del documento con el nuevo key
+      if (instanceUrl) {
+        await store.assignDocument(targetFile, instanceUrl, newKey);
+      }
     } catch (err) {
-      console.error("[Callback] Error guardando en R2:", err.message);
+      logger.error("Callback", "Error guardando en R2", { filename: targetFile, error: err.message });
     }
   }
 
@@ -343,7 +374,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
     });
     await s3.send(putCommand);
 
-    console.log("[Upload] Documento subido a R2:", r2Key(filename));
+    logger.info("Upload", "Documento subido a R2", { filename, r2Key: r2Key(filename), size: req.file.size });
 
     res.json({
       filename,
@@ -351,7 +382,7 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
       size: req.file.size,
     });
   } catch (err) {
-    console.error("[Upload] Error subiendo a R2:", err.message);
+    logger.error("Upload", "Error subiendo a R2", { filename, error: err.message });
     res.status(500).json({ error: "Error subiendo archivo a R2" });
   }
 });
@@ -361,6 +392,15 @@ app.post("/api/forcesave/:filename", async (req, res) => {
   const { filename } = req.params;
 
   try {
+    // Obtener la instancia asignada al documento
+    const instanceUrl = await instanceManager.getInstanceForDocument(filename);
+    if (!instanceUrl) {
+      logger.warn("Forcesave", "Sin instancia asignada", { filename });
+      return res.status(404).json({ error: "Documento no tiene instancia asignada" });
+    }
+
+    logger.info("Forcesave", "Enviando forcesave", { filename, instance: instanceUrl });
+
     const head = await headObject(filename);
     const key = generateDocumentKey(filename, head.LastModified);
 
@@ -372,7 +412,7 @@ app.post("/api/forcesave/:filename", async (req, res) => {
     const token = jwt.sign(commandBody, JWT_SECRET);
     commandBody.token = token;
 
-    const url = new URL(`${ONLYOFFICE_URL}/coauthoring/CommandService.ashx`);
+    const url = new URL(`${instanceUrl}/coauthoring/CommandService.ashx`);
 
     const postData = JSON.stringify(commandBody);
     const options = {
@@ -407,8 +447,19 @@ app.post("/api/forcesave/:filename", async (req, res) => {
     request.write(postData);
     request.end();
   } catch (err) {
-    console.error("[Forcesave] Error:", err.message);
+    logger.error("Forcesave", "Error", { filename, error: err.message });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Estado de las instancias (monitoreo)
+app.get("/api/instances/status", async (req, res) => {
+  try {
+    const status = await instanceManager.getStatus();
+    res.json({ instances: status });
+  } catch (err) {
+    logger.error("Status", "Error obteniendo estado", { error: err.message });
+    res.status(500).json({ error: "Error obteniendo estado de instancias" });
   }
 });
 
@@ -417,6 +468,22 @@ app.listen(PORT, () => {
   console.log(`\n🚀 Servidor iniciado en http://localhost:${PORT}`);
   console.log(`📄 Editor: http://localhost:${PORT}`);
   console.log(`📁 R2 Bucket: ${R2_BUCKET}/${R2_PREFIX}`);
-  console.log(`\n⚠️  Asegúrate de que OnlyOffice está corriendo:`);
+  console.log(`🔀 Instancias OnlyOffice: ${ONLYOFFICE_INSTANCES}`);
+  console.log(`\n⚠️  Asegúrate de que OnlyOffice y Redis están corriendo:`);
   console.log(`   docker compose up -d\n`);
+});
+
+// ── Graceful shutdown ────────────────────────────────────────
+process.on("SIGTERM", async () => {
+  console.log("\n[Shutdown] Cerrando conexiones...");
+  instanceManager.stop();
+  await store.disconnect();
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  console.log("\n[Shutdown] Cerrando conexiones...");
+  instanceManager.stop();
+  await store.disconnect();
+  process.exit(0);
 });

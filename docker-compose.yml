@@ -1,7 +1,17 @@
 services:
-  onlyoffice:
+  redis:
+    image: redis:7-alpine
+    container_name: onlyoffice-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  onlyoffice-1:
     image: onlyoffice/documentserver:latest
-    container_name: onlyoffice-ds
+    container_name: onlyoffice-ds-1
     ports:
       - "8080:80"
     environment:
@@ -12,9 +22,49 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - onlyoffice_data:/var/www/onlyoffice/Data
-      - onlyoffice_logs:/var/log/onlyoffice
+      - onlyoffice_data_1:/var/www/onlyoffice/Data
+      - onlyoffice_logs_1:/var/log/onlyoffice
+    restart: unless-stopped
+
+  onlyoffice-2:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice-ds-2
+    ports:
+      - "8081:80"
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=my-secret-key-change-me
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - onlyoffice_data_2:/var/www/onlyoffice/Data
+      - onlyoffice_logs_2:/var/log/onlyoffice
+    restart: unless-stopped
+
+  onlyoffice-3:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice-ds-3
+    ports:
+      - "8082:80"
+    environment:
+      - JWT_ENABLED=true
+      - JWT_SECRET=my-secret-key-change-me
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - onlyoffice_data_3:/var/www/onlyoffice/Data
+      - onlyoffice_logs_3:/var/log/onlyoffice
+    restart: unless-stopped
 
 volumes:
-  onlyoffice_data:
-  onlyoffice_logs:
+  redis_data:
+  onlyoffice_data_1:
+  onlyoffice_logs_1:
+  onlyoffice_data_2:
+  onlyoffice_logs_2:
+  onlyoffice_data_3:
+  onlyoffice_logs_3:
