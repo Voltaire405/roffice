@@ -258,8 +258,10 @@ app.get("/api/editor-config/:filename", async (req, res) => {
           comments: true,
           compactHeader: false,
           compactToolbar: false,
-          help: true,
+          help: false,
           hideRightMenu: false,
+          about: false,
+          feedback: false,
         },
         user: {
           id: "user-1",
