@@ -13,6 +13,6 @@ RUN mkdir -p files && chown -R node:node /app
 
 USER node
 
-EXPOSE 3000
+EXPOSE 13000
 
 CMD ["npm", "start"]

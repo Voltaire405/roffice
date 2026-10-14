@@ -14,10 +14,10 @@ const instanceManager = require("./instance-manager");
 const { logger, requestLogger } = require("./logger");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 13000;
 const JWT_SECRET = process.env.JWT_SECRET || "my-secret-key-change-me";
-const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:8080,http://localhost:8081,http://localhost:8082";
-const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:3000";
+const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:18080,http://localhost:18081,http://localhost:18082";
+const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:13000";
 
 // ── Cloudflare R2 ────────────────────────────────────────────
 const R2_BUCKET = process.env.R2_BUCKET || "development";
@@ -147,7 +147,7 @@ instanceManager.init(ONLYOFFICE_INSTANCES);
 // ── Rutas API ────────────────────────────────────────────────
 
 // Proxy: sirve archivos de R2 a OnlyOffice via backend
-// OnlyOffice accede a: http://host.docker.internal:3000/files/{filename}
+// OnlyOffice accede a: http://host.docker.internal:13000/files/{filename}
 app.get("/files/:filename", async (req, res) => {
   const { filename } = req.params;
   try {

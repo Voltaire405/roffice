@@ -1,6 +1,6 @@
-# OnlyOffice Test - Editor de documentos
+# Roffice -  Router Office
 
-Integración de OnlyOffice Document Server con Node.js/Express, almacenamiento en Cloudflare R2, state en Redis y pool de múltiples instancias de OnlyOffice con enrutado sticky por documento.
+Router para OnlyOffice Community Edition. Permite escalar las instancias de edición y desacoplarlas de la arquitectura del consumidor para asegurar el cumplimiento del licenciamiento.
 
 ## Requisitos
 
@@ -22,13 +22,13 @@ cp .env.example .env
 docker compose up -d
 
 # 4. Esperar ~1 minuto a que OnlyOffice inicie completamente
-# Verificar: http://localhost:8080, :8081, :8082 deben mostrar "Document Server is running"
+# Verificar: http://localhost:18080, :18081, :18082 deben mostrar "Document Server is running"
 
 # 5. Iniciar el backend
 npm run dev
 ```
 
-Abrir http://localhost:3000 en el navegador.
+Abrir http://localhost:13000 en el navegador.
 
 ## Estructura
 
@@ -59,10 +59,25 @@ Abrir http://localhost:3000 en el navegador.
 
 El almacenamiento vive en Cloudflare R2 bajo el prefijo configurado en `R2_PREFIX` (por defecto `borradores/`). El backend expone un proxy en `/files/:filename` que descarga desde R2 y lo sirve a OnlyOffice, de modo que las instancias Docker nunca necesitan credenciales de R2.
 
-Las URLs de documento y callback usan `BACKEND_URL` (por defecto `http://host.docker.internal:3000`) para que los contenedores de OnlyOffice puedan alcanzar el backend que corre en el host.
+Las URLs de documento y callback usan `BACKEND_URL` (por defecto `http://host.docker.internal:13000`) para que los contenedores de OnlyOffice puedan alcanzar el backend que corre en el host.
 
 El `document.key` se genera a partir del nombre del archivo y el `LastModified` del objeto en R2, garantizando que cambie al actualizar el documento e invalide la caché de OnlyOffice. En el callback (status 2 o 6) el backend descarga el archivo desde la URL que provee OnlyOffice, lo sube a R2 y actualiza el mapeo de `key` en Redis.
 
 Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave). El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
 El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas. `instance-manager.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice). Redis también guarda el mapeo `key → filename` que usa el callback para resolver el archivo destino.
+
+
+## Docker Build
+
+```
+# Build
+
+docker build -t roffice:latest .
+
+# Run
+
+docker run --name roffice -d -p 13000:13000 --env-file .env 3o:latest
+```
+
+**Nota:** Debe actualizarse las variables de entorno si el backend corre en docker para que apunte a las instancias correctas de onlyoffice.

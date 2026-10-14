@@ -1,6 +1,6 @@
 const Redis = require("ioredis");
 
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:16379";
 const DOC_TTL = 60 * 60 * 24; // 24 horas
 
 const redis = new Redis(REDIS_URL, {

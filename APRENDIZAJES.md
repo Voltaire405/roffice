@@ -23,7 +23,7 @@ app.get("/files/:filename", async (req, res) => {
 });
 ```
 
-OnlyOffice recibe una URL limpia: `http://host.docker.internal:3000/files/doc.docx`
+OnlyOffice recibe una URL limpia: `http://host.docker.internal:13000/files/doc.docx`
 
 ## 3. S3 Client + R2: forcePathStyle obligatorio
 
@@ -112,7 +112,7 @@ Ocultar cualquier header/nav propio cuando el editor está activo.
 
 El contenedor de Document Server necesita ~1-2 minutos para estar completamente operativo después de `docker compose up`. El healthcheck (`/healthcheck`) puede responder 200 antes de que el servicio de documentos esté listo.
 
-Verificar accesibilidad real con: `curl http://localhost:8080/web-apps/apps/api/documents/api.js`
+Verificar accesibilidad real con: `curl http://localhost:18080/web-apps/apps/api/documents/api.js`
 
 ## 10. Parámetros deprecados
 
