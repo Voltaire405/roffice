@@ -1,0 +1,16 @@
+{
+  "name": "roffice-cliente-prueba",
+  "private": true,
+  "description": "Tenant de prueba de Roffice: implementa el HANDOFF contra un bucket o prefijo sandbox",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1152.0",
+    "@aws-sdk/s3-request-presigner": "^3.1152.0",
+    "dotenv": "^16.4.7",
+    "express": "^5.3.0"
+  }
+}

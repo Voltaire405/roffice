@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cliente de prueba Roffice</title>
+  <style>
+    body { font: 15px/1.5 system-ui, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; }
+    h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; }
+    table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e5e5; }
+    button { cursor: pointer; } .muted { color: #6e6e73; } #error { color: #b00020; }
+  </style>
+</head>
+<body>
+  <h1>Cliente de prueba Roffice</h1>
+  <p class="muted">Simula un tenant: lista el prefijo sandbox, abre el editor en una pestaña y registra cada guardado que Roffice solicita.</p>
+
+  <label>Usuario simulado <input id="userName" value="Ana Prueba"></label>
+  <label><input id="edit" type="checkbox" checked> Edición</label>
+  <p id="error"></p>
+
+  <h2>Documentos</h2>
+  <input id="file" type="file" accept=".docx,.doc,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp">
+  <button id="refresh">Actualizar</button>
+  <table><thead><tr><th>Nombre</th><th>Tamaño</th><th>Modificado</th><th>Formato real</th><th></th></tr></thead><tbody id="docs"></tbody></table>
+
+  <h2>Guardados solicitados por Roffice</h2>
+  <ul id="events" class="muted"></ul>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const showError = (message) => ($("error").textContent = message || "");
+
+    async function loadDocuments() {
+      const res = await fetch("/api/documents");
+      const docs = await res.json();
+      if (!res.ok) return showError(docs.error);
+      $("docs").replaceChildren(...docs.map((doc) => {
+        const row = document.createElement("tr");
+        row.innerHTML = "<td></td><td></td><td></td><td></td><td><button>Abrir</button> <a>Descargar</a></td>";
+        row.cells[0].textContent = doc.name;
+        row.cells[1].textContent = `${Math.round(doc.size / 1024)} KB`;
+        row.cells[2].textContent = new Date(doc.lastModified).toLocaleString();
+        row.cells[3].textContent = doc.container;
+        row.querySelector("button").onclick = () => openEditor(doc.name);
+        row.querySelector("a").href = `/api/documents/${encodeURIComponent(doc.name)}/download`;
+        return row;
+      }));
+    }
+    $("refresh").onclick = loadDocuments;
+
+    // La pestaña se abre antes del await: el bloqueador de pop-ups solo permite window.open síncrono al click.
+    async function openEditor(name) {
+      showError();
+      const tab = window.open("about:blank");
+      try {
+        const res = await fetch(`/api/documents/${encodeURIComponent(name)}/editor`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userName: $("userName").value, edit: $("edit").checked }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error);
+        tab.location.href = body.editorUrl;
+      } catch (err) {
+        tab?.close();
+        showError(err.message);
+      }
+    }
+
+    $("file").onchange = async () => {
+      const file = $("file").files[0];
+      if (!file) return;
+      const res = await fetch(`/api/documents/${encodeURIComponent(file.name)}`, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file });
+      showError(res.ok ? "" : (await res.json()).error);
+      $("file").value = "";
+      loadDocuments();
+    };
+
+    async function loadEvents() {
+      const events = await (await fetch("/api/events")).json();
+      $("events").replaceChildren(...events.map((e) => Object.assign(document.createElement("li"), { textContent: `${new Date(e.time).toLocaleTimeString()} · ${e.docId} (abierto en versión ${e.version})` })));
+    }
+
+    loadDocuments();
+    loadEvents();
+    setInterval(loadEvents, 3000);
+  </script>
+</body>
+</html>
