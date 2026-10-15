@@ -81,6 +81,7 @@ async openEditor(docId: string) {
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.
 - `docId` se aísla por cliente (`azp:docId`), así dos clientes pueden usar el mismo id.
+- Cada `azp:user.id` tiene hasta `MAX_DOCS_PER_USER` documentos abiertos (por defecto 1). Al abrir otro, Roffice desconecta al usuario del más antiguo con el comando `drop` y borra su pestaña. El tenant abre el editor en la pestaña con nombre `roffice` (`docs/HANDOFF.md`, paso 6), así el nuevo documento reemplaza al anterior en la misma pestaña.
 
 ### `POST saveUrl` (Roffice → backend cliente)
 
@@ -119,7 +120,8 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 ├── onlyoffice.js        # Key, config firmado y verificación del callback de OnlyOffice
 ├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
 ├── instance-manager.js  # Pool de instancias OnlyOffice + sticky routing
-├── redis-store.js       # Documento ↔ instancia, key → sesión, fileToken → getUrl
+├── open-documents.js    # Límite de documentos abiertos por usuario
+├── redis-store.js       # Documento ↔ instancia, key → sesión, fileToken → getUrl, usuario → documentos abiertos
 ├── logger.js            # Logger estructurado + middleware de request
 ├── test.js              # Pruebas (node --test)
 ├── docker-compose.yml   # Redis + 3 instancias OnlyOffice Document Server
@@ -146,7 +148,7 @@ El `document.key` es `sha256(azp:docId + version)`. Se conserva durante toda la 
 
 Un guardado fallido (descarga, `saveUrl` o PUT) responde `500` con `error: 1`, para que OnlyOffice no lo dé por persistido.
 
-Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
+Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave, drop), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
 El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `instance-manager.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
 

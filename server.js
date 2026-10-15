@@ -8,6 +8,7 @@ const store = require("./redis-store");
 const instanceManager = require("./instance-manager");
 const { createOidc } = require("./oidc");
 const { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback, renderEditorPage } = require("./onlyoffice");
+const { trackOpenDocument } = require("./open-documents");
 const { logger, requestLogger } = require("./logger");
 
 function requireEnv(name) {
@@ -24,6 +25,8 @@ const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:1300
 const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:13000";
 const LAUNCH_TOKEN_TTL_SECONDS = 60;
 const TAB_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24;
+/** Documentos que un usuario puede tener abiertos a la vez; abrir otro lo desconecta del más antiguo. */
+const MAX_DOCS_PER_USER = Math.max(1, Number(process.env.MAX_DOCS_PER_USER) || 1);
 
 /** client_id (azp) autorizado → { saveUrl }. La saveUrl es configuración de Roffice, no del request, para no enviar su token de servicio a URLs arbitrarias. */
 const TENANTS = JSON.parse(requireEnv("TENANTS"));
@@ -115,6 +118,44 @@ async function saveToClient({ tenant, docId, version, fileType }, downloadUrl) {
   if (!upload.ok) throw new Error(`PUT al storage de ${tenant} respondió ${upload.status}`);
 }
 
+function sendCommand(instanceUrl, command) {
+  const token = jwt.sign(command, JWT_SECRET);
+  return fetch(`${instanceUrl}/coauthoring/CommandService.ashx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ ...command, token }),
+  });
+}
+
+/** Registra la apertura y desconecta al usuario de los documentos que exceden MAX_DOCS_PER_USER. */
+async function limitOpenDocuments(userRef, userId, opened) {
+  const live = [];
+  // Una sesión cerrada por callback (status 2/4) deja la entrada en el índice: solo cuenta si su key sigue activa.
+  // ponytail: un usuario que cerró su pestaña mientras otros siguen editando aún cuenta hasta su siguiente apertura.
+  for (const doc of await store.getOpenDocuments(userRef)) {
+    const active = await store.getDocumentInstance(doc.docRef);
+    if (active?.documentKey === doc.key) live.push(doc);
+  }
+
+  const { open, evicted } = trackOpenDocument(live, opened, MAX_DOCS_PER_USER);
+  await store.setOpenDocuments(userRef, open);
+  const reopened = live.find((doc) => doc.docRef === opened.docRef);
+  if (reopened) await store.removeEditorTab(reopened.tabId);
+  for (const doc of evicted) {
+    await store.removeEditorTab(doc.tabId);
+    dropUser(doc, userId);
+  }
+}
+
+async function dropUser({ docRef, key, instanceUrl }, userId) {
+  try {
+    const { error } = await (await sendCommand(instanceUrl, { c: "drop", key, users: [userId] })).json();
+    logger.info("Sessions", "Usuario desconectado del documento anterior", { docRef, key, error });
+  } catch (err) {
+    logger.warn("Sessions", "No se pudo desconectar al usuario del documento anterior", { docRef, error: err.message });
+  }
+}
+
 async function closeSession(key, session) {
   await store.removeDocumentAssignment(docRefOf(session.tenant, session.docId));
   await store.removeKeySession(key);
@@ -165,6 +206,7 @@ app.post("/api/sessions", requireServiceToken, async (req, res) => {
     const launchToken = crypto.randomBytes(32).toString("base64url");
     await store.setEditorTab(tabId, { config, publicUrl: instanceManager.getPublicUrl(instanceUrl), cookieSecret: crypto.randomBytes(32).toString("base64url") });
     await store.setLaunchToken(launchToken, tabId, LAUNCH_TOKEN_TTL_SECONDS);
+    await limitOpenDocuments(`${req.tenant}:${user.id}`, user.id, { docRef, key, instanceUrl, tabId });
 
     logger.info("Sessions", "Sesión de edición entregada", { docRef, instance: instanceUrl, key, joined: Boolean(active) });
     res.json({ editorUrl: `${PUBLIC_URL}/editor/launch/${launchToken}`, expiresIn: LAUNCH_TOKEN_TTL_SECONDS });
@@ -263,15 +305,8 @@ app.post("/api/sessions/:docId/forcesave", requireServiceToken, async (req, res)
   const active = await store.getDocumentInstance(docRefOf(req.tenant, req.params.docId));
   if (!active) return res.status(404).json({ error: "El documento no tiene sesión abierta" });
 
-  const command = { c: "forcesave", key: active.documentKey };
-  const token = jwt.sign(command, JWT_SECRET);
-
   try {
-    const response = await fetch(`${active.instanceUrl}/coauthoring/CommandService.ashx`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ...command, token }),
-    });
+    const response = await sendCommand(active.instanceUrl, { c: "forcesave", key: active.documentKey });
     res.status(response.status).type("json").send(await response.text());
   } catch (err) {
     logger.error("Forcesave", "Error", { docId: req.params.docId, error: err.message });

@@ -5,6 +5,7 @@ const http = require("http");
 const jwt = require("jsonwebtoken");
 const { documentKey, verifyCallback, renderEditorPage, buildEditorConfig } = require("./onlyoffice");
 const { createOidc } = require("./oidc");
+const { trackOpenDocument } = require("./open-documents");
 
 test("documentKey cambia con la versión y no colisiona por prefijo", () => {
   const key = documentKey("cliente:Lista_Asistencia-1775597639936.docx", "v1");
@@ -77,4 +78,17 @@ test("oidc valida tokens de servicio con el JWKS y cachea el token propio", asyn
   assert.strictEqual(await oidc.getServiceToken(), "propio");
   await oidc.getServiceToken();
   assert.strictEqual(tokenRequests, 1);
+});
+
+test("trackOpenDocument cede el documento más antiguo al superar el límite por usuario", () => {
+  const a = { docRef: "t:a", tabId: "1" };
+  const b = { docRef: "t:b", tabId: "2" };
+  const c = { docRef: "t:c", tabId: "3" };
+
+  assert.deepStrictEqual(trackOpenDocument([a], b, 1), { open: [b], evicted: [a] });
+  assert.deepStrictEqual(trackOpenDocument([b, a], c, 2), { open: [c, b], evicted: [a] });
+  assert.deepStrictEqual(trackOpenDocument([], a, 1), { open: [a], evicted: [] });
+
+  const reopenedA = { docRef: "t:a", tabId: "9" };
+  assert.deepStrictEqual(trackOpenDocument([b, a], reopenedA, 2), { open: [reopenedA, b], evicted: [] });
 });

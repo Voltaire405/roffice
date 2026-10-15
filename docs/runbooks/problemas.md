@@ -9,6 +9,7 @@ Busca el síntoma, aplica la solución y repite el paso que falló. Si el sínto
 | `init` → `403` en `/clients` | Token de admin emitido antes de existir el realm, o rol insuficiente | Re-ejecutar `init`; si persiste, confirmar el rol `admin` (`keycloak-init.md`) |
 | `/api/sessions` → `401` | Token sin `aud=roffice`, de otro realm o vencido | `alta-tenant.md`, paso 2 |
 | `/api/sessions` → `403` | `azp` ausente en `TENANTS` o Roffice sin reiniciar | `alta-tenant.md`, paso 3 |
+| Pestaña del editor → `403` al recargar, o el editor pasa a solo lectura | El mismo usuario abrió otro documento: `MAX_DOCS_PER_USER` (por defecto 1) lo desconectó del anterior | Reabrir el documento desde la aplicación del tenant |
 | Pestaña con `410` «El enlace expiró o ya se usó» | `editorUrl` dura 60 s y es de un solo uso | El tenant pide un `editorUrl` nuevo en cada apertura |
 | La pestaña del editor no aparece | El tenant llama `window.open` después de un `await` | `docs/HANDOFF.md`, paso 6 |
 | Roffice termina con `SyntaxError ... is not valid JSON` en `getKeySession` | Versión anterior a Express 5 y valores de Redis de la app previa | Actualizar a la versión actual: ignora esos valores y Express 5 captura errores async |

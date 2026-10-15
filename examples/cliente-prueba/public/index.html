@@ -50,9 +50,11 @@
     $("refresh").onclick = loadDocuments;
 
     // La pestaña se abre antes del await: el bloqueador de pop-ups solo permite window.open síncrono al click.
+    // Con nombre fijo y URL vacía, window.open devuelve la pestaña del editor ya abierta sin navegarla.
     async function openEditor(name) {
       showError();
-      const tab = window.open("about:blank");
+      const tab = window.open("", "roffice");
+      const isNewTab = isBlank(tab);
       try {
         const res = await fetch(`/api/documents/${encodeURIComponent(name)}/editor`, {
           method: "POST",
@@ -63,8 +65,17 @@
         if (!res.ok) throw new Error(body.error);
         tab.location.href = body.editorUrl;
       } catch (err) {
-        tab?.close();
+        if (isNewTab) tab.close();
         showError(err.message);
+      }
+    }
+
+    // La pestaña del editor es de otro origen: leer su location lanza excepción.
+    function isBlank(tab) {
+      try {
+        return tab.location.href === "about:blank";
+      } catch {
+        return false;
       }
     }
 

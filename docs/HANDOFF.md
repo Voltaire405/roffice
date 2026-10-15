@@ -80,6 +80,12 @@ Respuestas:
 | `403` | `{ "error": "Cliente no autorizado" }` | Tu `client_id` no está registrado en Roffice |
 | `503` | `{ "error": "..." }` | Sin instancias de OnlyOffice disponibles |
 
+#### Un documento abierto por usuario
+
+Cada usuario (`user.id`) tiene **un documento abierto a la vez**. Al abrir otro, Roffice lo desconecta del anterior: ese editor queda sin poder editar y su pestaña ya no recarga. El trabajo hecho se conserva: OnlyOffice guarda al desconectarlo. El paso 6 abre el nuevo documento en la misma pestaña.
+
+Si el operador de Roffice sube el límite (`MAX_DOCS_PER_USER`), el más antiguo cede su lugar al superarlo; en ese caso abre cada documento en una pestaña nueva con `window.open("about:blank")`.
+
 ### `POST {ROFFICE_URL}/api/sessions/{docId}/forcesave` — forzar guardado (opcional)
 
 Mismo header. `docId` codificado con `encodeURIComponent`. `404` si el documento no tiene sesión abierta.
@@ -112,19 +118,29 @@ Cumple cada paso hasta su criterio de **Hecho cuando**.
    **Hecho cuando** un test con un token válido recibe `putUrl`, y uno con `azp` distinto o sin token recibe `401`/`403`.
 5. **Gateway.** Publica la `saveUrl` en la ruta registrada, aceptando tokens del issuer de Roffice con `azp=roffice` y tu audiencia. Tus demás rutas conservan su validación actual.
    **Hecho cuando** una llamada con un token real de Roffice atraviesa el gateway hasta el paso 4.
-6. **Angular.** En el handler del click abre la pestaña como primera instrucción, antes de cualquier `await`, para que el bloqueador de pop-ups la permita:
+6. **Angular.** En el handler del click toma la pestaña del editor como primera instrucción, antes de cualquier `await`, para que el bloqueador de pop-ups la permita. El nombre fijo `roffice` con URL vacía devuelve la pestaña del editor ya abierta sin navegarla, o abre una nueva en blanco:
    ```ts
    async openEditor(docId: string) {
-     const tab = window.open("about:blank");
+     const tab = window.open("", "roffice");
+     const isNewTab = isBlank(tab);
      try {
        const { editorUrl } = await firstValueFrom(this.http.post<{ editorUrl: string }>(`/api/documents/${encodeURIComponent(docId)}/editor`, {}));
        tab!.location.href = editorUrl;
      } catch {
-       tab?.close();
+       if (isNewTab) tab!.close(); // una pestaña reutilizada conserva el documento anterior
+     }
+   }
+
+   // La pestaña del editor es de otro origen: leer su location lanza excepción.
+   function isBlank(tab: Window | null): boolean {
+     try {
+       return tab!.location.href === "about:blank";
+     } catch {
+       return false;
      }
    }
    ```
-   **Hecho cuando** el click abre una pestaña con el editor sin aviso de pop-up bloqueado.
+   **Hecho cuando** el primer click abre una pestaña con el editor sin aviso de pop-up bloqueado, y el click en otro documento lo carga en esa misma pestaña.
 7. **Verificación de punta a punta.** Abre un documento, edítalo, cierra la pestaña.
    **Hecho cuando** la versión editada aparece en tu storage ~10 s después del cierre y tu `saveUrl` registró la llamada.
 
@@ -136,6 +152,8 @@ Cumple cada paso hasta su criterio de **Hecho cuando**.
 | `403` en `/api/sessions` | Tenant no registrado o Roffice sin reiniciar | Contactar al operador de Roffice |
 | Pestaña con «El enlace expiró o ya se usó» | `editorUrl` usado dos veces o tras 60 s | Pedir un `editorUrl` nuevo en cada apertura |
 | La pestaña no aparece | `window.open` después de un `await` | Paso 6 |
+| Cada documento abre una pestaña nueva | `window.open` sin el nombre `roffice` | Paso 6 |
+| Un editor abierto deja de permitir editar | El mismo usuario abrió otro documento ([límite](#un-documento-abierto-por-usuario)) | Reabrir el documento desde tu aplicación |
 | El editor no carga el documento | `getUrl` vencido o inaccesible desde Roffice | GET prefirmado con vida de minutos y alcanzable desde internet |
 | El editor muestra error al abrir | `fileType` distinto del formato real del archivo | Enviar la extensión real del objeto |
 | `400 fileType no soportado` | Formato fuera de la lista | Ofrecer solo los formatos de [Formatos](#formatos) |

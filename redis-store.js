@@ -146,6 +146,13 @@ async function getEditorTab(tabId) {
 }
 
 /**
+ * @param {string} tabId
+ */
+async function removeEditorTab(tabId) {
+  await redis.del(`tab:${tabId}`);
+}
+
+/**
  * @param {string} launchToken
  * @param {string} tabId
  * @param {number} ttlSeconds
@@ -161,6 +168,33 @@ async function setLaunchToken(launchToken, tabId, ttlSeconds) {
  */
 async function takeLaunchToken(launchToken) {
   return redis.getdel(`launch:${launchToken}`);
+}
+
+// ── Documentos abiertos por usuario ──────────────────────────
+
+/**
+ * @typedef {Object} OpenDocument
+ * @property {string} docRef
+ * @property {string} key - documentKey con la que el usuario lo abrió
+ * @property {string} instanceUrl
+ * @property {string} tabId
+ */
+
+/**
+ * @param {string} userRef - `<tenant>:<user.id>`
+ * @returns {Promise<OpenDocument[]>} del más reciente al más antiguo
+ */
+async function getOpenDocuments(userRef) {
+  const data = await redis.get(`user:${userRef}`);
+  return data ? JSON.parse(data) : [];
+}
+
+/**
+ * @param {string} userRef
+ * @param {OpenDocument[]} openDocs
+ */
+async function setOpenDocuments(userRef, openDocs) {
+  await redis.set(`user:${userRef}`, JSON.stringify(openDocs), "EX", DOC_TTL);
 }
 
 // ── Conteo de documentos por instancia ───────────────────────
@@ -227,6 +261,9 @@ module.exports = {
   getEditorTab,
   setLaunchToken,
   takeLaunchToken,
+  removeEditorTab,
+  getOpenDocuments,
+  setOpenDocuments,
   getInstanceLoadMap,
   disconnect,
 };
