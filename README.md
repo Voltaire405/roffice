@@ -121,9 +121,9 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 ├── app.js               # createApp: rutas de sesiones, proxy /files, callback, forcesave
 ├── onlyoffice.js        # Key, config firmado y verificación del callback de OnlyOffice
 ├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
-├── instance-manager.js  # Pool de instancias OnlyOffice + sticky routing
+├── pool.js              # Pool de instancias OnlyOffice: sticky routing y dueño de doc:
 ├── open-documents.js    # Límite de documentos abiertos por usuario
-├── redis-store.js       # Documento ↔ instancia, key → sesión, fileToken → getUrl, usuario → documentos abiertos
+├── redis-store.js       # key → sesión, fileToken → getUrl, usuario → documentos abiertos
 ├── logger.js            # Logger estructurado + middleware de request
 ├── test.js              # Pruebas (node --test)
 ├── scripts/smoke.js     # Smoke E2E del flujo HTTP contra Redis real
@@ -153,7 +153,7 @@ Un guardado fallido (descarga, `saveUrl` o PUT) responde `500` con `error: 1`, p
 
 Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave, drop), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
-El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `instance-manager.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
+El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `pool.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
 
 ## Docker Build
 

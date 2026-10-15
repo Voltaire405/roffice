@@ -1,6 +1,6 @@
 require("dotenv").config();
 const store = require("./redis-store");
-const instanceManager = require("./instance-manager");
+const { createPool } = require("./pool");
 const { createOidc } = require("./oidc");
 const { createApp } = require("./app");
 
@@ -21,7 +21,8 @@ const oidc = createOidc({
   clientSecret: requireEnv("OIDC_CLIENT_SECRET"),
 });
 
-instanceManager.init(ONLYOFFICE_INSTANCES);
+const pool = createPool({ redis: store.redis, instances: ONLYOFFICE_INSTANCES });
+pool.start();
 
 const app = createApp({
   TENANTS,
@@ -33,7 +34,7 @@ const app = createApp({
   MAX_DOCS_PER_USER: Math.max(1, Number(process.env.MAX_DOCS_PER_USER) || 1),
   oidc,
   store,
-  instanceManager,
+  pool,
 });
 
 // Express 5 también invoca este callback cuando el puerto falla (ej. EADDRINUSE).
@@ -46,7 +47,7 @@ app.listen(PORT, (err) => {
 
 async function shutdown() {
   console.log("\n[Shutdown] Cerrando conexiones...");
-  instanceManager.stop();
+  pool.stop();
   await store.disconnect();
   process.exit(0);
 }

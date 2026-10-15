@@ -19,41 +19,6 @@ redis.on("connect", () => {
   console.log("[Redis] Conectado a", REDIS_URL);
 });
 
-// ── Mapeo documento → instancia ──────────────────────────────
-
-/**
- * Asigna un documento a una instancia de OnlyOffice.
- * @param {string} filename
- * @param {string} instanceUrl
- * @param {string} documentKey
- */
-async function assignDocument(filename, instanceUrl, documentKey) {
-  const data = JSON.stringify({
-    instanceUrl,
-    documentKey,
-    assignedAt: Date.now(),
-  });
-  await redis.set(`doc:${filename}`, data, "EX", DOC_TTL);
-}
-
-/**
- * Obtiene la instancia asignada a un documento.
- * @param {string} filename
- * @returns {Promise<{instanceUrl: string, documentKey: string, assignedAt: number} | null>}
- */
-async function getDocumentInstance(filename) {
-  const data = await redis.get(`doc:${filename}`);
-  return data ? JSON.parse(data) : null;
-}
-
-/**
- * Elimina la asignación de un documento.
- * @param {string} filename
- */
-async function removeDocumentAssignment(filename) {
-  await redis.del(`doc:${filename}`);
-}
-
 // ── Sesión de edición por documentKey (para callbacks) ───────
 
 /**
@@ -197,48 +162,6 @@ async function setOpenDocuments(userRef, openDocs) {
   await redis.set(`user:${userRef}`, JSON.stringify(openDocs), "EX", DOC_TTL);
 }
 
-// ── Conteo de documentos por instancia ───────────────────────
-
-/**
- * Cuenta cuántos documentos están asignados a cada instancia.
- * Usa SCAN para no bloquear Redis.
- * @param {string[]} instanceUrls
- * @returns {Promise<Map<string, number>>}
- */
-async function getInstanceLoadMap(instanceUrls) {
-  const loadMap = new Map();
-  for (const url of instanceUrls) {
-    loadMap.set(url, 0);
-  }
-
-  let cursor = "0";
-  do {
-    const [nextCursor, keys] = await redis.scan(cursor, "MATCH", "doc:*", "COUNT", 100);
-    cursor = nextCursor;
-
-    if (keys.length > 0) {
-      const pipeline = redis.pipeline();
-      for (const key of keys) {
-        pipeline.get(key);
-      }
-      const results = await pipeline.exec();
-
-      for (const [err, val] of results) {
-        if (!err && val) {
-          try {
-            const { instanceUrl } = JSON.parse(val);
-            if (loadMap.has(instanceUrl)) {
-              loadMap.set(instanceUrl, loadMap.get(instanceUrl) + 1);
-            }
-          } catch { /* ignorar datos corruptos */ }
-        }
-      }
-    }
-  } while (cursor !== "0");
-
-  return loadMap;
-}
-
 /**
  * Cierra la conexión a Redis.
  */
@@ -248,9 +171,6 @@ async function disconnect() {
 
 module.exports = {
   redis,
-  assignDocument,
-  getDocumentInstance,
-  removeDocumentAssignment,
   setKeySession,
   getKeySession,
   removeKeySession,
@@ -264,6 +184,5 @@ module.exports = {
   removeEditorTab,
   getOpenDocuments,
   setOpenDocuments,
-  getInstanceLoadMap,
   disconnect,
 };

@@ -15,7 +15,7 @@ const TAB_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24;
  * TENANTS: client_id (azp) autorizado → { saveUrl }. La saveUrl es configuración de Roffice, no del request,
  * para no enviar su token de servicio a URLs arbitrarias.
  */
-function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_USER, oidc, store, instanceManager }) {
+function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_USER, oidc, store, pool }) {
   const app = express();
   app.use(requestLogger);
   app.use(express.json());
@@ -109,7 +109,7 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
     // Una sesión cerrada por callback (status 2/4) deja la entrada en el índice: solo cuenta si su key sigue activa.
     // ponytail: un usuario que cerró su pestaña mientras otros siguen editando aún cuenta hasta su siguiente apertura.
     for (const doc of await store.getOpenDocuments(userRef)) {
-      const active = await store.getDocumentInstance(doc.docRef);
+      const active = await pool.lookup(doc.docRef);
       if (active?.documentKey === doc.key) live.push(doc);
     }
 
@@ -133,7 +133,7 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
   }
 
   async function closeSession(key, session) {
-    await store.removeDocumentAssignment(docRefOf(session.tenant, session.docId));
+    await pool.release(docRefOf(session.tenant, session.docId));
     await store.removeKeySession(key);
     await store.removeFileSource(session.fileToken);
   }
@@ -150,12 +150,10 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
     const docRef = docRefOf(req.tenant, docId);
 
     try {
-      const instanceUrl = await instanceManager.assignInstance(docRef);
       // Quien se une a una sesión abierta debe recibir la misma key aunque un forcesave
       // ya haya cambiado la versión en el storage; si no, OnlyOffice abre otra sesión.
       // ponytail: una edición externa del documento con la sesión abierta no rota la key hasta status 2/4 o el TTL de 24 h.
-      const active = await store.getDocumentInstance(docRef);
-      const key = active?.documentKey ?? documentKey(docRef, version);
+      const { instanceUrl, publicUrl, documentKey: key, joined } = await pool.assign(docRef, documentKey(docRef, version));
 
       let session = await store.getKeySession(key);
       if (!session) {
@@ -164,7 +162,6 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
       }
       // Cada apertura renueva la getUrl: la del primer editor pudo expirar si OnlyOffice aún no la descargó.
       await store.setFileSource(session.fileToken, getUrl);
-      await store.assignDocument(docRef, instanceUrl, key);
 
       const config = buildEditorConfig({
         key,
@@ -180,11 +177,11 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
 
       const tabId = crypto.randomUUID();
       const launchToken = crypto.randomBytes(32).toString("base64url");
-      await store.setEditorTab(tabId, { config, publicUrl: instanceManager.getPublicUrl(instanceUrl), cookieSecret: crypto.randomBytes(32).toString("base64url") });
+      await store.setEditorTab(tabId, { config, publicUrl, cookieSecret: crypto.randomBytes(32).toString("base64url") });
       await store.setLaunchToken(launchToken, tabId, LAUNCH_TOKEN_TTL_SECONDS);
       await limitOpenDocuments(`${req.tenant}:${user.id}`, user.id, { docRef, key, instanceUrl, tabId });
 
-      logger.info("Sessions", "Sesión de edición entregada", { docRef, instance: instanceUrl, key, joined: Boolean(active) });
+      logger.info("Sessions", "Sesión de edición entregada", { docRef, instance: instanceUrl, key, joined });
       res.json({ editorUrl: `${PUBLIC_URL}/editor/launch/${launchToken}`, expiresIn: LAUNCH_TOKEN_TTL_SECONDS });
     } catch (err) {
       logger.error("Sessions", "Error abriendo sesión", { docRef, error: err.message });
@@ -278,7 +275,7 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
   });
 
   app.post("/api/sessions/:docId/forcesave", requireServiceToken, async (req, res) => {
-    const active = await store.getDocumentInstance(docRefOf(req.tenant, req.params.docId));
+    const active = await pool.lookup(docRefOf(req.tenant, req.params.docId));
     if (!active) return res.status(404).json({ error: "El documento no tiene sesión abierta" });
 
     try {
@@ -292,7 +289,7 @@ function createApp({ TENANTS, JWT_SECRET, BACKEND_URL, PUBLIC_URL, MAX_DOCS_PER_
 
   app.get("/api/instances/status", async (req, res) => {
     try {
-      res.json({ instances: await instanceManager.getStatus() });
+      res.json({ instances: await pool.status() });
     } catch (err) {
       logger.error("Status", "Error obteniendo estado", { error: err.message });
       res.status(500).json({ error: "Error obteniendo estado de instancias" });
