@@ -2,6 +2,8 @@
 
 Router para OnlyOffice Community Edition. Permite escalar las instancias de edición y desacoplarlas de la arquitectura del consumidor para asegurar el cumplimiento del licenciamiento.
 
+Runbooks de configuración y operación: [`docs/runbooks/`](docs/runbooks/).
+
 Roffice no tiene storage propio: el documento vive en el Object Storage de la aplicación cliente. El cliente abre una sesión con una URL prefirmada de lectura y Roffice, al guardar, le pide una URL prefirmada de escritura.
 
 ## Requisitos
