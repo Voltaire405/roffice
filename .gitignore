@@ -18,3 +18,5 @@ files/*
 
 # Admin de Keycloak solo para scripts/keycloak.js
 !.env.admin.example
+
+handoff/
