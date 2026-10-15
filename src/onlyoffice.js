@@ -61,8 +61,6 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
         forcesave: true,
         comments: true,
         help: false,
-        about: false,
-        feedback: false,
         ...(returnUrl && { goback: { url: returnUrl, blank: false } }),
       },
     },
