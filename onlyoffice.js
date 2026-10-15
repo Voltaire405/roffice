@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
+// Solo los OOXML se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
+const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx"]);
+
 const FILE_TYPES = {
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
   doc: { documentType: "word", mime: "application/msword" },
@@ -30,7 +33,7 @@ function documentKey(docRef, version) {
 }
 
 function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, secret }) {
-  const canEdit = permissions.edit === true;
+  const canEdit = permissions.edit === true && EDITABLE_FILE_TYPES.has(fileType);
   const config = {
     height: "100%",
     width: "100%",

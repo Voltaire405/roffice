@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const crypto = require("crypto");
 const http = require("http");
 const jwt = require("jsonwebtoken");
-const { documentKey, verifyCallback, renderEditorPage } = require("./onlyoffice");
+const { documentKey, verifyCallback, renderEditorPage, buildEditorConfig } = require("./onlyoffice");
 const { createOidc } = require("./oidc");
 
 test("documentKey cambia con la versión y no colisiona por prefijo", () => {
@@ -24,6 +24,18 @@ test("verifyCallback acepta solo callbacks firmados con el secreto de OnlyOffice
   assert.strictEqual(verifyCallback({}, `Bearer ${jwt.sign({ payload: body }, "secreto")}`, "secreto").url, body.url);
   assert.throws(() => verifyCallback({ ...body, token: jwt.sign(body, "otro") }, undefined, "secreto"));
   assert.throws(() => verifyCallback(body, undefined, "secreto"));
+});
+
+test("solo docx, xlsx y pptx se abren en edición aunque el tenant pida editar", () => {
+  const open = (fileType) =>
+    buildEditorConfig({ key: "k", title: "t", fileType, fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit: true }, secret: "s" });
+
+  for (const fileType of ["docx", "xlsx", "pptx"]) assert.strictEqual(open(fileType).editorConfig.mode, "edit");
+  for (const fileType of ["doc", "xls", "ppt", "odt", "csv"]) {
+    const config = open(fileType);
+    assert.strictEqual(config.editorConfig.mode, "view");
+    assert.strictEqual(config.document.permissions.edit, false);
+  }
 });
 
 test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
