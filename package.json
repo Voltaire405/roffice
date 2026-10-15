@@ -5,6 +5,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
+    "start:local": "NODE_EXTRA_CA_CERTS=\"$(mkcert -CAROOT)/rootCA.pem\" node src/main.js",
     "dev": "node --watch src/main.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "keycloak": "node scripts/keycloak.js"
