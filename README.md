@@ -154,7 +154,7 @@ Un guardado fallido (descarga, `saveUrl` o PUT) responde `500` con `error: 1`, p
 
 Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave, drop), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
-El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `src/pool.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
+El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `src/pool.js` asigna cada documento a la instancia sana con menos documentos, de forma sticky y atómica aunque lleguen aperturas simultáneas, y persiste el mapeo y la carga por instancia en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
 
 ## Docker Build
 

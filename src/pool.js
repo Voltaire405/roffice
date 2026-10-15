@@ -3,7 +3,11 @@ const https = require("https");
 
 const HEALTH_CHECK_INTERVAL = 30_000;
 const HEALTH_CHECK_TIMEOUT = 5_000;
-const ASSIGNMENT_TTL_SECONDS = 60 * 60 * 24;
+const DEFAULT_ASSIGNMENT_TTL_SECONDS = 60 * 60 * 24;
+const MAX_ASSIGN_ATTEMPTS = 3;
+
+// Reemplaza la asignación solo si nadie la cambió desde que se leyó.
+const REPLACE_IF_UNCHANGED = `if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("SET", KEYS[1], ARGV[2], "EX", ARGV[3]) end`;
 
 /**
  * @typedef {Object} Instance
@@ -47,8 +51,9 @@ function checkHealth(instance) {
  * @param {Object} deps
  * @param {import("ioredis").Redis} deps.redis
  * @param {string} deps.instances - Entradas `interna|pública` separadas por coma; sin `|`, la pública es la interna
+ * @param {number} [deps.assignmentTtlSeconds] - vida de una asignación sin aperturas nuevas
  */
-function createPool({ redis, instances: instancesEnv }) {
+function createPool({ redis, instances: instancesEnv, assignmentTtlSeconds = DEFAULT_ASSIGNMENT_TTL_SECONDS }) {
   const entries = instancesEnv.split(",").map((u) => u.trim()).filter(Boolean);
   if (entries.length === 0) throw new Error("ONLYOFFICE_INSTANCES no contiene URLs válidas");
 
@@ -71,21 +76,22 @@ function createPool({ redis, instances: instancesEnv }) {
     if (!instances.some((inst) => inst.healthy)) console.warn("[Pool] ⚠️  NINGUNA instancia saludable disponible");
   }
 
-  /** Documentos asignados por instancia. ponytail: SCAN de todo doc:*, O(documentos) por apertura; contador por instancia si la carga crece. */
+  // Carga de cada instancia: sorted set `load:<instancia>` de docRef con su vencimiento como score,
+  // para que una asignación vencida por TTL deje de contar sin que nadie la libere.
+  const loadKey = (instanceUrl) => `load:${instanceUrl}`;
+
   async function loadByInstance() {
-    const load = new Map(instances.map((inst) => [inst.url, 0]));
-    let cursor = "0";
-    do {
-      const [nextCursor, keys] = await redis.scan(cursor, "MATCH", "doc:*", "COUNT", 100);
-      cursor = nextCursor;
-      if (keys.length === 0) continue;
-      for (const value of await redis.mget(keys)) {
-        const instanceUrl = value && JSON.parse(value).instanceUrl;
-        if (load.has(instanceUrl)) load.set(instanceUrl, load.get(instanceUrl) + 1);
-      }
-    } while (cursor !== "0");
-    return load;
+    const now = Date.now();
+    const counts = await Promise.all(
+      instances.map(async (inst) => {
+        await redis.zremrangebyscore(loadKey(inst.url), "-inf", now);
+        return [inst.url, await redis.zcard(loadKey(inst.url))];
+      })
+    );
+    return new Map(counts);
   }
+
+  const countLoad = (instanceUrl, docRef) => redis.zadd(loadKey(instanceUrl), Date.now() + assignmentTtlSeconds * 1000, docRef);
 
   async function leastLoadedInstance() {
     const healthy = instances.filter((inst) => inst.healthy);
@@ -94,7 +100,7 @@ function createPool({ redis, instances: instancesEnv }) {
     return healthy.reduce((best, inst) => (load.get(inst.url) < load.get(best.url) ? inst : best));
   }
 
-  /** @returns {Promise<{instanceUrl: string, documentKey: string} | null>} */
+  /** @returns {Promise<{instanceUrl: string, documentKey: string, assignedAt: number} | null>} */
   async function lookup(docRef) {
     const value = await redis.get(`doc:${docRef}`);
     return value ? JSON.parse(value) : null;
@@ -102,24 +108,42 @@ function createPool({ redis, instances: instancesEnv }) {
 
   /**
    * Asigna el documento a una instancia, o lo une a su sesión abierta si su instancia sigue sana.
-   * Con la instancia caída reasigna y la sesión arranca con `candidateKey`.
+   * Con la instancia caída reasigna y la sesión arranca con `candidateKey`. Dos aperturas simultáneas
+   * del mismo documento terminan en la misma asignación: la que pierde la escritura se une a la ganadora.
    * @param {string} docRef
    * @param {string} candidateKey - key para el documento si no tiene sesión abierta
    * @returns {Promise<Assignment>}
    */
   async function assign(docRef, candidateKey) {
-    const active = await lookup(docRef);
-    const activeInstance = active && instances.find((inst) => inst.url === active.instanceUrl && inst.healthy);
-    // ponytail: leer y luego escribir no es atómico; dos aperturas simultáneas pueden elegir instancias distintas. SET NX si ocurre.
-    const instance = activeInstance ?? (await leastLoadedInstance());
-    const documentKey = activeInstance ? active.documentKey : candidateKey;
+    const key = `doc:${docRef}`;
+    for (let attempt = 0; attempt < MAX_ASSIGN_ATTEMPTS; attempt++) {
+      const raw = await redis.get(key);
+      const active = raw && JSON.parse(raw);
+      const activeInstance = active && instances.find((inst) => inst.url === active.instanceUrl && inst.healthy);
+      if (activeInstance) {
+        await redis.expire(key, assignmentTtlSeconds);
+        await countLoad(activeInstance.url, docRef);
+        return { instanceUrl: activeInstance.url, publicUrl: activeInstance.publicUrl, documentKey: active.documentKey, joined: true };
+      }
 
-    await redis.set(`doc:${docRef}`, JSON.stringify({ instanceUrl: instance.url, documentKey, assignedAt: Date.now() }), "EX", ASSIGNMENT_TTL_SECONDS);
-    return { instanceUrl: instance.url, publicUrl: instance.publicUrl, documentKey, joined: Boolean(activeInstance) };
+      const instance = await leastLoadedInstance();
+      const value = JSON.stringify({ instanceUrl: instance.url, documentKey: candidateKey, assignedAt: Date.now() });
+      const written = raw
+        ? await redis.eval(REPLACE_IF_UNCHANGED, 1, key, raw, value, assignmentTtlSeconds)
+        : await redis.set(key, value, "EX", assignmentTtlSeconds, "NX");
+      if (!written) continue;
+
+      if (active) await redis.zrem(loadKey(active.instanceUrl), docRef);
+      await countLoad(instance.url, docRef);
+      return { instanceUrl: instance.url, publicUrl: instance.publicUrl, documentKey: candidateKey, joined: false };
+    }
+    throw new Error(`Asignación de ${docRef} en conflicto tras ${MAX_ASSIGN_ATTEMPTS} intentos`);
   }
 
   async function release(docRef) {
+    const active = await lookup(docRef);
     await redis.del(`doc:${docRef}`);
+    if (active) await redis.zrem(loadKey(active.instanceUrl), docRef);
   }
 
   async function status() {
