@@ -79,7 +79,12 @@ async function setKeySession(documentKey, session) {
  */
 async function getKeySession(documentKey) {
   const data = await redis.get(`key:${documentKey}`);
-  return data ? JSON.parse(data) : null;
+  try {
+    return data ? JSON.parse(data) : null;
+  } catch {
+    // Valor de la versión anterior (key → filename en texto plano): no es una sesión de este formato.
+    return null;
+  }
 }
 
 /**
