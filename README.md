@@ -117,7 +117,8 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 ## Estructura
 
 ```
-├── server.js            # Rutas: sesiones, proxy /files, callback, forcesave
+├── main.js              # Arranque: lee .env, cablea Redis, pool y OIDC, escucha
+├── app.js               # createApp: rutas de sesiones, proxy /files, callback, forcesave
 ├── onlyoffice.js        # Key, config firmado y verificación del callback de OnlyOffice
 ├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
 ├── instance-manager.js  # Pool de instancias OnlyOffice + sticky routing

@@ -51,7 +51,7 @@ const openTab = async (body) => {
 };
 const ok = (cond, msg) => { if (!cond) { console.log("FALLA:", msg); process.exitCode = 1; } else console.log("ok:", msg); };
 
-const server = spawn("node", ["server.js"], { cwd: path.join(__dirname, ".."), env: { ...process.env, PORT: "19003", BACKEND_URL: RO, PUBLIC_URL: RO, JWT_SECRET: "s3", OIDC_ISSUER: ISS, OIDC_AUDIENCE: "roffice",
+const server = spawn("node", ["main.js"], { cwd: path.join(__dirname, ".."), env: { ...process.env, PORT: "19003", BACKEND_URL: RO, PUBLIC_URL: RO, JWT_SECRET: "s3", OIDC_ISSUER: ISS, OIDC_AUDIENCE: "roffice",
   OIDC_CLIENT_ID: "roffice", OIDC_CLIENT_SECRET: "x", TENANTS: JSON.stringify({ "cliente-backend": { saveUrl: `${STORE}/save-url` } }), LOG_LEVEL: "error", ONLYOFFICE_INSTANCES: "http://localhost:19004|http://publico-a" }, stdio: ["ignore", "ignore", "inherit"] });
 
 setTimeout(async () => {
