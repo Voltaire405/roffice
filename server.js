@@ -289,7 +289,9 @@ app.get("/api/instances/status", async (req, res) => {
 });
 
 // ── Iniciar servidor ─────────────────────────────────────────
-app.listen(PORT, () => {
+// Express 5 también invoca este callback cuando el puerto falla (ej. EADDRINUSE).
+app.listen(PORT, (err) => {
+  if (err) throw err;
   console.log(`\n🚀 Roffice escuchando en http://localhost:${PORT}`);
   console.log(`🔀 Instancias OnlyOffice: ${ONLYOFFICE_INSTANCES}`);
   console.log(`🔑 Clientes autorizados: ${Object.keys(TENANTS).join(", ")}\n`);
