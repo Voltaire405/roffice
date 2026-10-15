@@ -41,10 +41,23 @@ Angular ──JWT usuario──▶ Backend cliente ──token servicio──▶
                               └──── POST saveUrl (token Roffice)┘ → PUT prefirmado al storage
 ```
 
-1. Angular pide abrir el documento a su backend con el JWT de Keycloak del usuario. El backend decide si el usuario puede editar o solo ver.
-2. El backend cliente llama `POST /api/sessions` con su token de servicio y recibe `{ config, onlyofficeUrl }`, que reenvía a Angular.
-3. Angular carga `${onlyofficeUrl}/web-apps/apps/api/documents/api.js` y abre `new DocsAPI.DocEditor(id, config)`.
-4. Al guardar (callback 2 o 6), Roffice descarga el archivo de OnlyOffice, llama `POST saveUrl` del cliente para obtener un PUT prefirmado y sube el archivo.
+1. En el handler del click, Angular abre la pestaña **antes** de cualquier `await` (si no, el bloqueador de pop-ups la cierra): `const tab = window.open("about:blank")`.
+2. Angular pide abrir el documento a su backend con el JWT de Keycloak del usuario. El backend decide si el usuario puede editar o solo ver.
+3. El backend cliente llama `POST /api/sessions` con su token de servicio y recibe `{ editorUrl, expiresIn }`, que reenvía a Angular.
+4. Angular navega la pestaña: `tab.location = editorUrl`. El enlace es de un solo uso y vence en 60 s; Roffice lo canjea por una cookie `HttpOnly` de esa pestaña y redirige a `/editor/:tabId`, que carga el editor desde la URL pública de la instancia.
+5. Al guardar (callback 2 o 6), Roffice descarga el archivo de OnlyOffice, llama `POST saveUrl` del cliente para obtener un PUT prefirmado y sube el archivo. Esa llamada le sirve al backend cliente de aviso de que el documento cambió.
+
+```ts
+async openEditor(docId: string) {
+  const tab = window.open("about:blank");
+  try {
+    const { editorUrl } = await firstValueFrom(this.http.post<{ editorUrl: string }>(`/api/docs/${docId}/editor`, {}));
+    tab!.location.href = editorUrl;
+  } catch {
+    tab?.close();
+  }
+}
+```
 
 ### `POST /api/sessions` (backend cliente → Roffice)
 
@@ -56,9 +69,12 @@ Angular ──JWT usuario──▶ Backend cliente ──token servicio──▶
   "title": "Contrato 123.docx",
   "getUrl": "https://storage/...?X-Amz-Signature=...",
   "user": { "id": "sub-del-jwt", "name": "Ana Pérez" },
-  "permissions": { "edit": true, "comment": true, "review": true, "download": true, "print": true }
+  "permissions": { "edit": true, "comment": true, "review": true, "download": true, "print": true },
+  "returnUrl": "https://app.cliente/docs/123"
 }
 ```
+
+- `returnUrl` (opcional): destino del botón «volver» del editor (`customization.goback`).
 
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.
@@ -97,7 +113,9 @@ Roffice valida `iss`, `aud` (`OIDC_AUDIENCE`) y la firma con el JWKS del issuer.
 
 | Endpoint | Método | Auth | Descripción |
 |---|---|---|---|
-| `/api/sessions` | POST | Token de servicio | Abre o se une a la sesión de edición; devuelve config firmado + instancia |
+| `/api/sessions` | POST | Token de servicio | Abre o se une a la sesión de edición; devuelve el enlace de un solo uso de la pestaña |
+| `/editor/launch/:launchToken` | GET | Enlace de un solo uso | Canjea el enlace por la cookie de la pestaña y redirige |
+| `/editor/:tabId` | GET | Cookie de la pestaña | Página del editor |
 | `/api/sessions/:docId/forcesave` | POST | Token de servicio | Fuerza el guardado vía `CommandService` de la instancia asignada |
 | `/api/callback` | POST | JWT de OnlyOffice | Guarda en el storage del cliente (2, 6) y cierra la sesión (2, 4) |
 | `/files/:fileToken` | GET | Token opaco | Proxy del `getUrl` del cliente (usado por OnlyOffice) |
@@ -113,7 +131,7 @@ Un guardado fallido (descarga, `saveUrl` o PUT) responde `500` con `error: 1`, p
 
 Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
-El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas. `instance-manager.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
+El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `instance-manager.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
 
 ## Docker Build
 

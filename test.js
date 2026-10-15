@@ -3,7 +3,7 @@ const assert = require("node:assert");
 const crypto = require("crypto");
 const http = require("http");
 const jwt = require("jsonwebtoken");
-const { documentKey, verifyCallback } = require("./onlyoffice");
+const { documentKey, verifyCallback, renderEditorPage } = require("./onlyoffice");
 const { createOidc } = require("./oidc");
 
 test("documentKey cambia con la versión y no colisiona por prefijo", () => {
@@ -24,6 +24,16 @@ test("verifyCallback acepta solo callbacks firmados con el secreto de OnlyOffice
   assert.strictEqual(verifyCallback({}, `Bearer ${jwt.sign({ payload: body }, "secreto")}`, "secreto").url, body.url);
   assert.throws(() => verifyCallback({ ...body, token: jwt.sign(body, "otro") }, undefined, "secreto"));
   assert.throws(() => verifyCallback(body, undefined, "secreto"));
+});
+
+test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
+  const title = `</script><script>alert(1)</script>`;
+  const config = { document: { title }, editorConfig: { user: { name: title } } };
+  const html = renderEditorPage({ config, publicUrl: "http://oo" });
+
+  assert.strictEqual(html.match(/<script/g).length, 2);
+  const embedded = html.match(/DocEditor\("editor", (.*)\);<\/script>/)[1];
+  assert.deepStrictEqual(JSON.parse(embedded), config);
 });
 
 test("oidc valida tokens de servicio con el JWKS y cachea el token propio", async (t) => {

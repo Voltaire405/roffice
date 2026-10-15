@@ -7,7 +7,7 @@ const jwt = require("jsonwebtoken");
 const store = require("./redis-store");
 const instanceManager = require("./instance-manager");
 const { createOidc } = require("./oidc");
-const { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback } = require("./onlyoffice");
+const { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback, renderEditorPage } = require("./onlyoffice");
 const { logger, requestLogger } = require("./logger");
 
 function requireEnv(name) {
@@ -20,6 +20,10 @@ const PORT = process.env.PORT || 13000;
 const JWT_SECRET = process.env.JWT_SECRET || "my-secret-key-change-me";
 const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:18080,http://localhost:18081,http://localhost:18082";
 const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:13000";
+/** URL con la que el navegador abre la pestaña del editor; BACKEND_URL es la que ven los contenedores de OnlyOffice. */
+const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:13000";
+const LAUNCH_TOKEN_TTL_SECONDS = 60;
+const TAB_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24;
 
 /** client_id (azp) autorizado → { saveUrl }. La saveUrl es configuración de Roffice, no del request, para no enviar su token de servicio a URLs arbitrarias. */
 const TENANTS = JSON.parse(requireEnv("TENANTS"));
@@ -67,13 +71,26 @@ function isHttpUrl(value) {
   }
 }
 
-function validateSessionRequest({ docId, version, fileType, getUrl, user }) {
+function validateSessionRequest({ docId, version, fileType, getUrl, user, returnUrl }) {
   if (typeof docId !== "string" || !docId) return "docId requerido";
   if (typeof version !== "string" || !version) return "version requerida";
   if (!isSupportedFileType(fileType)) return "fileType no soportado";
   if (!isHttpUrl(getUrl)) return "getUrl debe ser una URL http(s)";
   if (typeof user?.id !== "string" || typeof user?.name !== "string") return "user.id y user.name requeridos";
+  if (returnUrl !== undefined && !isHttpUrl(returnUrl)) return "returnUrl debe ser una URL http(s)";
   return null;
+}
+
+function readTabCookie(req) {
+  return req.get("Cookie")?.match(/(?:^|;\s*)roffice_tab=([^;]+)/)?.[1];
+}
+
+function sameSecret(a, b) {
+  return typeof a === "string" && a.length === b.length && crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+function sendEditorError(res, status, message) {
+  res.status(status).type("html").send(`<!doctype html><meta charset="utf-8"><title>Roffice</title><p>${message}</p>`);
 }
 
 const docRefOf = (tenant, docId) => `${tenant}:${docId}`;
@@ -111,7 +128,7 @@ app.post("/api/sessions", requireServiceToken, async (req, res) => {
   const problem = validateSessionRequest(req.body);
   if (problem) return res.status(400).json({ error: problem });
 
-  const { docId, version, fileType, getUrl, user, permissions = {} } = req.body;
+  const { docId, version, fileType, getUrl, user, returnUrl, permissions = {} } = req.body;
   const title = req.body.title || `${docId}.${fileType}`;
   const docRef = docRefOf(req.tenant, docId);
 
@@ -140,15 +157,48 @@ app.post("/api/sessions", requireServiceToken, async (req, res) => {
       callbackUrl: `${BACKEND_URL}/api/callback`,
       user,
       permissions,
+      returnUrl,
       secret: JWT_SECRET,
     });
 
+    const tabId = crypto.randomUUID();
+    const launchToken = crypto.randomBytes(32).toString("base64url");
+    await store.setEditorTab(tabId, { config, publicUrl: instanceManager.getPublicUrl(instanceUrl), cookieSecret: crypto.randomBytes(32).toString("base64url") });
+    await store.setLaunchToken(launchToken, tabId, LAUNCH_TOKEN_TTL_SECONDS);
+
     logger.info("Sessions", "Sesión de edición entregada", { docRef, instance: instanceUrl, key, joined: Boolean(active) });
-    res.json({ config, onlyofficeUrl: instanceUrl });
+    res.json({ editorUrl: `${PUBLIC_URL}/editor/launch/${launchToken}`, expiresIn: LAUNCH_TOKEN_TTL_SECONDS });
   } catch (err) {
     logger.error("Sessions", "Error abriendo sesión", { docRef, error: err.message });
     res.status(503).json({ error: "No se pudo abrir la sesión de edición" });
   }
+});
+
+// Canjea el enlace de un solo uso por una cookie de la pestaña y redirige a una URL sin el token.
+app.get("/editor/launch/:launchToken", async (req, res) => {
+  const tabId = await store.takeLaunchToken(req.params.launchToken);
+  const tab = tabId && (await store.getEditorTab(tabId));
+  if (!tab) return sendEditorError(res, 410, "El enlace expiró o ya se usó. Vuelve a abrir el documento desde la aplicación.");
+
+  res.cookie("roffice_tab", tab.cookieSecret, {
+    path: `/editor/${tabId}`,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: PUBLIC_URL.startsWith("https:"),
+    maxAge: TAB_COOKIE_MAX_AGE_SECONDS * 1000,
+  });
+  res.set("Referrer-Policy", "no-referrer");
+  res.redirect(303, `/editor/${tabId}`);
+});
+
+app.get("/editor/:tabId", async (req, res) => {
+  const tab = await store.getEditorTab(req.params.tabId);
+  if (!tab || !sameSecret(readTabCookie(req), tab.cookieSecret)) {
+    return sendEditorError(res, 403, "Esta pestaña no tiene acceso al documento. Vuelve a abrirlo desde la aplicación.");
+  }
+  res.set("Cache-Control", "no-store");
+  res.set("Referrer-Policy", "no-referrer");
+  res.type("html").send(renderEditorPage(tab));
 });
 
 // Proxy de lectura: OnlyOffice no maneja bien las URLs prefirmadas virtual-hosted (ver APRENDIZAJES.md §2)

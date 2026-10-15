@@ -29,7 +29,7 @@ function documentKey(docRef, version) {
   return crypto.createHash("sha256").update(`${docRef}\n${version}`).digest("hex");
 }
 
-function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, secret }) {
+function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, secret }) {
   const canEdit = permissions.edit === true;
   const config = {
     height: "100%",
@@ -60,6 +60,7 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
         help: false,
         about: false,
         feedback: false,
+        ...(returnUrl && { goback: { url: returnUrl, blank: false } }),
       },
     },
     documentType: FILE_TYPES[fileType].documentType,
@@ -81,4 +82,26 @@ function verifyCallback(body, authorizationHeader, secret) {
   throw new Error("Callback sin token");
 }
 
-module.exports = { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback };
+const escapeHtml = (text) =>
+  text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/** Página de la pestaña del editor. El config lleva datos del cliente (título, nombre de usuario): se escapa para que no cierre el <script>. */
+function renderEditorPage({ config, publicUrl }) {
+  const configJson = JSON.stringify(config).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(config.document.title)}</title>
+  <style>html, body, #editor { height: 100%; margin: 0; }</style>
+  <script src="${escapeHtml(publicUrl)}/web-apps/apps/api/documents/api.js"></script>
+</head>
+<body>
+  <div id="editor"></div>
+  <script>new DocsAPI.DocEditor("editor", ${configJson});</script>
+</body>
+</html>`;
+}
+
+module.exports = { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback, renderEditorPage };

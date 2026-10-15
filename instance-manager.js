@@ -7,7 +7,8 @@ const HEALTH_CHECK_TIMEOUT = 5_000;   // 5 segundos
 
 /**
  * @typedef {Object} Instance
- * @property {string} url - URL base de la instancia (ej: http://localhost:8080)
+ * @property {string} url - URL interna de la instancia (health checks, CommandService)
+ * @property {string} publicUrl - URL con la que el navegador carga el editor
  * @property {boolean} healthy - Estado de salud actual
  * @property {Date|null} lastCheck - Última verificación de salud
  */
@@ -16,28 +17,29 @@ const HEALTH_CHECK_TIMEOUT = 5_000;   // 5 segundos
 let instances = [];
 let healthCheckTimer = null;
 
+const withoutTrailingSlash = (url) => url.replace(/\/$/, "");
+
 /**
  * Inicializa el pool de instancias desde la variable de entorno.
- * @param {string} instancesEnv - URLs separadas por coma
+ * @param {string} instancesEnv - Entradas `interna|pública` separadas por coma; sin `|`, la pública es la interna
  */
 function init(instancesEnv) {
-  const urls = instancesEnv
+  const entries = instancesEnv
     .split(",")
     .map((u) => u.trim())
     .filter(Boolean);
 
-  if (urls.length === 0) {
+  if (entries.length === 0) {
     throw new Error("ONLYOFFICE_INSTANCES no contiene URLs válidas");
   }
 
-  instances = urls.map((url) => ({
-    url: url.replace(/\/$/, ""), // quitar trailing slash
-    healthy: true, // asumir saludable al inicio
-    lastCheck: null,
-  }));
+  instances = entries.map((entry) => {
+    const [url, publicUrl = url] = entry.split("|").map((u) => withoutTrailingSlash(u.trim()));
+    return { url, publicUrl, healthy: true, lastCheck: null };
+  });
 
   console.log(`[InstanceManager] Pool inicializado con ${instances.length} instancia(s):`);
-  instances.forEach((inst, i) => console.log(`  [${i}] ${inst.url}`));
+  instances.forEach((inst, i) => console.log(`  [${i}] ${inst.url} (pública: ${inst.publicUrl})`));
 
   // Iniciar health checks periódicos
   runHealthChecks();
@@ -172,6 +174,14 @@ async function getInstanceForDocument(filename) {
 }
 
 /**
+ * @param {string} url - URL interna de una instancia del pool
+ * @returns {string}
+ */
+function getPublicUrl(url) {
+  return instances.find((i) => i.url === url).publicUrl;
+}
+
+/**
  * Detiene los health checks.
  */
 function stop() {
@@ -185,6 +195,7 @@ module.exports = {
   init,
   assignInstance,
   getInstanceForDocument,
+  getPublicUrl,
   getStatus,
   getHealthyInstances,
   stop,

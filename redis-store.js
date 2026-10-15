@@ -114,6 +114,50 @@ async function removeFileSource(fileToken) {
   await redis.del(`file:${fileToken}`);
 }
 
+// ── Pestaña del editor: enlace de un solo uso → sesión de pestaña ─
+
+/**
+ * @typedef {Object} EditorTab
+ * @property {Object} config - config firmado de OnlyOffice para este usuario
+ * @property {string} publicUrl - URL pública de la instancia asignada
+ * @property {string} cookieSecret - valor de la cookie que habilita /editor/:tabId
+ */
+
+/**
+ * @param {string} tabId
+ * @param {EditorTab} tab
+ */
+async function setEditorTab(tabId, tab) {
+  await redis.set(`tab:${tabId}`, JSON.stringify(tab), "EX", DOC_TTL);
+}
+
+/**
+ * @param {string} tabId
+ * @returns {Promise<EditorTab | null>}
+ */
+async function getEditorTab(tabId) {
+  const data = await redis.get(`tab:${tabId}`);
+  return data ? JSON.parse(data) : null;
+}
+
+/**
+ * @param {string} launchToken
+ * @param {string} tabId
+ * @param {number} ttlSeconds
+ */
+async function setLaunchToken(launchToken, tabId, ttlSeconds) {
+  await redis.set(`launch:${launchToken}`, tabId, "EX", ttlSeconds);
+}
+
+/**
+ * Canjea el enlace: GETDEL lo invalida de forma atómica aunque lleguen dos canjes a la vez.
+ * @param {string} launchToken
+ * @returns {Promise<string | null>} tabId
+ */
+async function takeLaunchToken(launchToken) {
+  return redis.getdel(`launch:${launchToken}`);
+}
+
 // ── Conteo de documentos por instancia ───────────────────────
 
 /**
@@ -174,6 +218,10 @@ module.exports = {
   setFileSource,
   getFileSource,
   removeFileSource,
+  setEditorTab,
+  getEditorTab,
+  setLaunchToken,
+  takeLaunchToken,
   getInstanceLoadMap,
   disconnect,
 };
