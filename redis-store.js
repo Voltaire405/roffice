@@ -54,32 +54,64 @@ async function removeDocumentAssignment(filename) {
   await redis.del(`doc:${filename}`);
 }
 
-// ── Mapeo key → filename (para callbacks) ────────────────────
+// ── Sesión de edición por documentKey (para callbacks) ───────
 
 /**
- * Guarda el mapeo documentKey → filename.
- * @param {string} documentKey
- * @param {string} filename
+ * @typedef {Object} EditSession
+ * @property {string} tenant - client_id (azp) del backend que abrió la sesión
+ * @property {string} docId
+ * @property {string} version - versión del documento al abrir la sesión
+ * @property {string} fileType
+ * @property {string} fileToken - token opaco del proxy /files/:fileToken
  */
-async function setKeyMapping(documentKey, filename) {
-  await redis.set(`key:${documentKey}`, filename, "EX", DOC_TTL);
+
+/**
+ * @param {string} documentKey
+ * @param {EditSession} session
+ */
+async function setKeySession(documentKey, session) {
+  await redis.set(`key:${documentKey}`, JSON.stringify(session), "EX", DOC_TTL);
 }
 
 /**
- * Resuelve un documentKey a filename.
  * @param {string} documentKey
+ * @returns {Promise<EditSession | null>}
+ */
+async function getKeySession(documentKey) {
+  const data = await redis.get(`key:${documentKey}`);
+  return data ? JSON.parse(data) : null;
+}
+
+/**
+ * @param {string} documentKey
+ */
+async function removeKeySession(documentKey) {
+  await redis.del(`key:${documentKey}`);
+}
+
+// ── Origen del archivo por token opaco (proxy /files) ────────
+
+/**
+ * @param {string} fileToken
+ * @param {string} getUrl - URL prefirmada del cliente; nunca llega al navegador
+ */
+async function setFileSource(fileToken, getUrl) {
+  await redis.set(`file:${fileToken}`, getUrl, "EX", DOC_TTL);
+}
+
+/**
+ * @param {string} fileToken
  * @returns {Promise<string | null>}
  */
-async function getFilenameByKey(documentKey) {
-  return redis.get(`key:${documentKey}`);
+async function getFileSource(fileToken) {
+  return redis.get(`file:${fileToken}`);
 }
 
 /**
- * Elimina un mapeo de key.
- * @param {string} documentKey
+ * @param {string} fileToken
  */
-async function removeKeyMapping(documentKey) {
-  await redis.del(`key:${documentKey}`);
+async function removeFileSource(fileToken) {
+  await redis.del(`file:${fileToken}`);
 }
 
 // ── Conteo de documentos por instancia ───────────────────────
@@ -136,9 +168,12 @@ module.exports = {
   assignDocument,
   getDocumentInstance,
   removeDocumentAssignment,
-  setKeyMapping,
-  getFilenameByKey,
-  removeKeyMapping,
+  setKeySession,
+  getKeySession,
+  removeKeySession,
+  setFileSource,
+  getFileSource,
+  removeFileSource,
   getInstanceLoadMap,
   disconnect,
 };

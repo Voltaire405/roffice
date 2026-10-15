@@ -1,464 +1,237 @@
 require("dotenv").config();
+const crypto = require("crypto");
+const { Readable } = require("stream");
+const { pipeline } = require("stream/promises");
 const express = require("express");
-const cors = require("cors");
 const jwt = require("jsonwebtoken");
-const multer = require("multer");
-const { v4: uuidv4 } = require("uuid");
-const path = require("path");
-const https = require("https");
-const http = require("http");
-const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, HeadObjectCommand } = require("@aws-sdk/client-s3");
-const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const store = require("./redis-store");
 const instanceManager = require("./instance-manager");
+const { createOidc } = require("./oidc");
+const { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback } = require("./onlyoffice");
 const { logger, requestLogger } = require("./logger");
 
-const app = express();
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`Falta la variable de entorno ${name}`);
+  return value;
+}
+
 const PORT = process.env.PORT || 13000;
 const JWT_SECRET = process.env.JWT_SECRET || "my-secret-key-change-me";
 const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:18080,http://localhost:18081,http://localhost:18082";
 const BACKEND_URL = process.env.BACKEND_URL || "http://host.docker.internal:13000";
 
-// ── Cloudflare R2 ────────────────────────────────────────────
-const R2_BUCKET = process.env.R2_BUCKET || "development";
-const R2_PREFIX = process.env.R2_PREFIX || "borradores/";
+/** client_id (azp) autorizado → { saveUrl }. La saveUrl es configuración de Roffice, no del request, para no enviar su token de servicio a URLs arbitrarias. */
+const TENANTS = JSON.parse(requireEnv("TENANTS"));
 
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  forcePathStyle: true,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
+const oidc = createOidc({
+  issuer: requireEnv("OIDC_ISSUER"),
+  audience: requireEnv("OIDC_AUDIENCE"),
+  clientId: requireEnv("OIDC_CLIENT_ID"),
+  clientSecret: requireEnv("OIDC_CLIENT_SECRET"),
 });
 
-// ── Middleware ────────────────────────────────────────────────
+const app = express();
 app.use(requestLogger);
-app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
 
-// ── Multer (en memoria, para subir directo a R2) ─────────────
-const upload = multer({ storage: multer.memoryStorage() });
+instanceManager.init(ONLYOFFICE_INSTANCES);
+
+// ── Autenticación de servicio (backend del cliente → Roffice) ─
+
+async function requireServiceToken(req, res, next) {
+  const token = req.get("Authorization")?.replace(/^Bearer /, "");
+  if (!token) return res.status(401).json({ error: "Falta token de servicio" });
+
+  try {
+    const claims = await oidc.verifyServiceToken(token);
+    if (!Object.hasOwn(TENANTS, claims.azp)) {
+      logger.warn("Auth", "Cliente no registrado en TENANTS", { azp: claims.azp });
+      return res.status(403).json({ error: "Cliente no autorizado" });
+    }
+    req.tenant = claims.azp;
+    next();
+  } catch (err) {
+    logger.warn("Auth", "Token de servicio rechazado", { error: err.message });
+    res.status(401).json({ error: "Token de servicio inválido" });
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
-const SUPPORTED_EXTENSIONS = [".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".odt", ".ods", ".odp", ".txt", ".csv", ".rtf"];
-
-/**
- * Genera un document.key único por versión del archivo.
- * Usa el ETag/LastModified de R2 para invalidar la caché de OnlyOffice.
- */
-function generateDocumentKey(filename, lastModified) {
-  const ts = lastModified ? new Date(lastModified).getTime().toString() : Date.now().toString();
-  return Buffer.from(`${filename}_${ts}`).toString("base64url").slice(0, 20);
+function isHttpUrl(value) {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
 }
 
-/** R2 key completo para un archivo */
-function r2Key(filename) {
-  return `${R2_PREFIX}${filename}`;
+function validateSessionRequest({ docId, version, fileType, getUrl, user }) {
+  if (typeof docId !== "string" || !docId) return "docId requerido";
+  if (typeof version !== "string" || !version) return "version requerida";
+  if (!isSupportedFileType(fileType)) return "fileType no soportado";
+  if (!isHttpUrl(getUrl)) return "getUrl debe ser una URL http(s)";
+  if (typeof user?.id !== "string" || typeof user?.name !== "string") return "user.id y user.name requeridos";
+  return null;
 }
 
-/** Obtiene metadatos de un objeto en R2 */
-async function headObject(filename) {
-  const command = new HeadObjectCommand({ Bucket: R2_BUCKET, Key: r2Key(filename) });
-  return s3.send(command);
-}
+const docRefOf = (tenant, docId) => `${tenant}:${docId}`;
 
-function getFileType(filename) {
-  const ext = path.extname(filename).toLowerCase();
-  const types = {
-    ".docx": "word",
-    ".doc": "word",
-    ".odt": "word",
-    ".rtf": "word",
-    ".txt": "word",
-    ".xlsx": "cell",
-    ".xls": "cell",
-    ".ods": "cell",
-    ".csv": "cell",
-    ".pptx": "slide",
-    ".ppt": "slide",
-    ".odp": "slide",
-  };
-  return types[ext] || "word";
-}
+/** Descarga la versión editada de OnlyOffice y la sube con un PUT prefirmado que el cliente emite en ese momento. */
+async function saveToClient({ tenant, docId, version, fileType }, downloadUrl) {
+  const download = await fetch(downloadUrl);
+  if (!download.ok) throw new Error(`Descarga desde OnlyOffice respondió ${download.status}`);
+  const file = Buffer.from(await download.arrayBuffer());
+  const contentType = mimeType(fileType);
 
-function getMimeType(filename) {
-  const ext = path.extname(filename).toLowerCase();
-  const mimes = {
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".doc": "application/msword",
-    ".xls": "application/vnd.ms-excel",
-    ".ppt": "application/vnd.ms-powerpoint",
-    ".odt": "application/vnd.oasis.opendocument.text",
-    ".ods": "application/vnd.oasis.opendocument.spreadsheet",
-    ".odp": "application/vnd.oasis.opendocument.presentation",
-    ".txt": "text/plain",
-    ".csv": "text/csv",
-    ".rtf": "application/rtf",
-  };
-  return mimes[ext] || "application/octet-stream";
-}
-
-/**
- * Firma el config completo con JWT.
- * IMPORTANTE: se firma TODO el objeto de configuración.
- */
-function signConfig(config) {
-  return jwt.sign(config, JWT_SECRET);
-}
-
-/** Descarga un archivo de una URL y lo devuelve como Buffer */
-function downloadToBuffer(url, redirectCount = 0) {
-  return new Promise((resolve, reject) => {
-    logger.debug("Download", "Descargando archivo", { url, redirectCount });
-    const protocol = url.startsWith("https") ? https : http;
-    protocol.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        const location = response.headers.location;
-        logger.info("Download", `Redirect ${response.statusCode}`, { from: url, to: location, redirectCount: redirectCount + 1 });
-        return downloadToBuffer(location, redirectCount + 1).then(resolve).catch(reject);
-      }
-      if (response.statusCode !== 200) {
-        logger.warn("Download", `Respuesta inesperada`, { url, status: response.statusCode });
-      }
-      const chunks = [];
-      response.on("data", (chunk) => chunks.push(chunk));
-      response.on("end", () => {
-        const buffer = Buffer.concat(chunks);
-        logger.debug("Download", "Descarga completada", { url, size: `${buffer.length} bytes` });
-        resolve(buffer);
-      });
-      response.on("error", reject);
-    }).on("error", (err) => {
-      logger.error("Download", "Error de conexión", { url, error: err.message });
-      reject(err);
-    });
+  const grant = await fetch(TENANTS[tenant].saveUrl, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${await oidc.getServiceToken()}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ docId, version, contentType }),
   });
+  if (!grant.ok) throw new Error(`saveUrl de ${tenant} respondió ${grant.status}`);
+  const { putUrl } = await grant.json();
+  if (!isHttpUrl(putUrl)) throw new Error(`saveUrl de ${tenant} no devolvió putUrl`);
+
+  const upload = await fetch(putUrl, { method: "PUT", headers: { "Content-Type": contentType }, body: file });
+  if (!upload.ok) throw new Error(`PUT al storage de ${tenant} respondió ${upload.status}`);
 }
 
-// Inicializar el pool de instancias de OnlyOffice
-instanceManager.init(ONLYOFFICE_INSTANCES);
+async function closeSession(key, session) {
+  await store.removeDocumentAssignment(docRefOf(session.tenant, session.docId));
+  await store.removeKeySession(key);
+  await store.removeFileSource(session.fileToken);
+}
 
-// ── Rutas API ────────────────────────────────────────────────
+// ── Rutas ────────────────────────────────────────────────────
 
-// Proxy: sirve archivos de R2 a OnlyOffice via backend
-// OnlyOffice accede a: http://host.docker.internal:13000/files/{filename}
-app.get("/files/:filename", async (req, res) => {
-  const { filename } = req.params;
+// Abre (o se une a) la sesión de edición de un documento del cliente.
+app.post("/api/sessions", requireServiceToken, async (req, res) => {
+  const problem = validateSessionRequest(req.body);
+  if (problem) return res.status(400).json({ error: problem });
+
+  const { docId, version, fileType, getUrl, user, permissions = {} } = req.body;
+  const title = req.body.title || `${docId}.${fileType}`;
+  const docRef = docRefOf(req.tenant, docId);
+
   try {
-    logger.debug("Proxy", "Sirviendo archivo desde R2", { filename, r2Key: r2Key(filename) });
-    const command = new GetObjectCommand({ Bucket: R2_BUCKET, Key: r2Key(filename) });
-    const result = await s3.send(command);
+    const instanceUrl = await instanceManager.assignInstance(docRef);
+    // Quien se une a una sesión abierta debe recibir la misma key aunque un forcesave
+    // ya haya cambiado la versión en el storage; si no, OnlyOffice abre otra sesión.
+    // ponytail: una edición externa del documento con la sesión abierta no rota la key hasta status 2/4 o el TTL de 24 h.
+    const active = await store.getDocumentInstance(docRef);
+    const key = active?.documentKey ?? documentKey(docRef, version);
 
-    res.set("Content-Type", result.ContentType || getMimeType(filename));
-    res.set("Content-Length", result.ContentLength);
-    res.set("Cache-Control", "no-cache");
-
-    // result.Body es un Readable stream
-    result.Body.pipe(res);
-  } catch (err) {
-    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
-      logger.warn("Proxy", "Archivo no encontrado", { filename });
-      return res.status(404).json({ error: "Archivo no encontrado" });
+    let session = await store.getKeySession(key);
+    if (!session) {
+      session = { tenant: req.tenant, docId, version, fileType, fileToken: crypto.randomUUID() };
+      await store.setKeySession(key, session);
     }
-    logger.error("Proxy", "Error sirviendo archivo", { filename, error: err.message });
-    res.status(500).json({ error: "Error descargando archivo" });
+    // Cada apertura renueva la getUrl: la del primer editor pudo expirar si OnlyOffice aún no la descargó.
+    await store.setFileSource(session.fileToken, getUrl);
+    await store.assignDocument(docRef, instanceUrl, key);
+
+    const config = buildEditorConfig({
+      key,
+      title,
+      fileType: session.fileType,
+      fileUrl: `${BACKEND_URL}/files/${session.fileToken}`,
+      callbackUrl: `${BACKEND_URL}/api/callback`,
+      user,
+      permissions,
+      secret: JWT_SECRET,
+    });
+
+    logger.info("Sessions", "Sesión de edición entregada", { docRef, instance: instanceUrl, key, joined: Boolean(active) });
+    res.json({ config, onlyofficeUrl: instanceUrl });
+  } catch (err) {
+    logger.error("Sessions", "Error abriendo sesión", { docRef, error: err.message });
+    res.status(503).json({ error: "No se pudo abrir la sesión de edición" });
   }
 });
 
-// Listar documentos en R2 borradores/
-app.get("/api/documents", async (req, res) => {
-  try {
-    const command = new ListObjectsV2Command({
-      Bucket: R2_BUCKET,
-      Prefix: R2_PREFIX,
-    });
-    const result = await s3.send(command);
-    const objects = result.Contents || [];
-
-    const documents = objects
-      .filter((obj) => {
-        const filename = obj.Key.replace(R2_PREFIX, "");
-        if (!filename || filename.includes("/")) return false;
-        const ext = path.extname(filename).toLowerCase();
-        return SUPPORTED_EXTENSIONS.includes(ext);
-      })
-      .map((obj) => {
-        const filename = obj.Key.replace(R2_PREFIX, "");
-        return {
-          filename,
-          key: generateDocumentKey(filename, obj.LastModified),
-          fileType: getFileType(filename),
-          size: obj.Size,
-          lastModified: obj.LastModified,
-        };
-      });
-
-    res.json(documents);
-  } catch (err) {
-    console.error("[R2] Error listando documentos:", err.message);
-    res.status(500).json({ error: "Error listando documentos de R2" });
-  }
-});
-
-// Obtener config del editor para un documento
-app.get("/api/editor-config/:filename", async (req, res) => {
-  const { filename } = req.params;
-  const mode = req.query.mode || "edit"; // edit | view
+// Proxy de lectura: OnlyOffice no maneja bien las URLs prefirmadas virtual-hosted (ver APRENDIZAJES.md §2)
+// y así la getUrl del cliente nunca viaja en el config que llega al navegador.
+app.get("/files/:fileToken", async (req, res) => {
+  const getUrl = await store.getFileSource(req.params.fileToken);
+  if (!getUrl) return res.status(404).json({ error: "Archivo no encontrado" });
 
   try {
-    // Verificar que el archivo existe en R2 y obtener metadatos
-    const head = await headObject(filename);
-    const ext = path.extname(filename).replace(".", "");
-    const documentKey = generateDocumentKey(filename, head.LastModified);
-
-    // Asignar instancia de OnlyOffice (sticky por documento)
-    const instanceUrl = await instanceManager.assignInstance(filename);
-    logger.info("Router", "Documento asignado a instancia", { filename, instance: instanceUrl, key: documentKey, mode });
-
-    // Guardar mapeos en Redis
-    await store.assignDocument(filename, instanceUrl, documentKey);
-    await store.setKeyMapping(documentKey, filename);
-
-    // URL del documento vía proxy del backend (accesible desde Docker)
-    const fileUrl = `${BACKEND_URL}/files/${encodeURIComponent(filename)}`;
-
-    // Callback sigue apuntando al backend vía host.docker.internal
-    const callbackUrl = `${BACKEND_URL}/api/callback`;
-
-    const config = {
-      height: "100%",
-      width: "100%",
-      document: {
-        fileType: ext,
-        key: documentKey,
-        title: filename,
-        url: fileUrl,
-        permissions: {
-          chat: true,
-          comment: true,
-          download: true,
-          edit: mode === "edit",
-          print: true,
-          review: true,
-        },
-      },
-      editorConfig: {
-        mode: mode,
-        callbackUrl: callbackUrl,
-        lang: "es",
-        customization: {
-          autosave: true,
-          forcesave: true,
-          comments: true,
-          compactHeader: false,
-          compactToolbar: false,
-          help: false,
-          hideRightMenu: false,
-          about: false,
-          feedback: false,
-        },
-        user: {
-          id: "user-1",
-          name: "Usuario Demo",
-        },
-      },
-      documentType: getFileType(filename),
-    };
-
-    // Firmar TODO el config con JWT
-    const token = signConfig(config);
-    config.token = token;
-
-    res.json({
-      config,
-      onlyofficeUrl: instanceUrl,
-    });
-  } catch (err) {
-    if (err.name === "NotFound" || err.$metadata?.httpStatusCode === 404) {
-      return res.status(404).json({ error: "Documento no encontrado en R2" });
+    const source = await fetch(getUrl);
+    if (!source.ok) {
+      logger.warn("Proxy", "El storage del cliente rechazó la lectura", { status: source.status });
+      return res.status(502).json({ error: "No se pudo leer el documento del cliente" });
     }
-    logger.error("Router", "Error obteniendo config", { filename, error: err.message });
-    res.status(500).json({ error: "Error obteniendo documento" });
+    res.set("Content-Type", source.headers.get("content-type") || "application/octet-stream");
+    res.set("Cache-Control", "no-store");
+    await pipeline(Readable.fromWeb(source.body), res);
+  } catch (err) {
+    logger.error("Proxy", "Error leyendo el documento del cliente", { error: err.message });
+    if (res.headersSent) return res.destroy();
+    res.status(502).json({ error: "No se pudo leer el documento del cliente" });
   }
 });
 
-// Callback de OnlyOffice (descarga de OO y sube a R2)
+/**
+ * Callback de OnlyOffice:
+ * 2 - listo para guardar (todos cerraron) · 4 - cerrado sin cambios · 6 - forcesave
+ * Un guardado fallido responde 500 + error ≠ 0 para que OnlyOffice no lo dé por persistido.
+ */
 app.post("/api/callback", async (req, res) => {
-  const body = req.body;
-
-  logger.info("Callback", "Callback recibido", { status: body.status, key: body.key, users: body.users });
-
-  /**
-   * Estados del callback:
-   * 1 - Documento en edición
-   * 2 - Documento listo para guardar (todos los editores cerraron)
-   * 3 - Error al guardar
-   * 4 - Documento cerrado sin cambios
-   * 6 - Documento en proceso de edición, fuerza guardado (forcesave)
-   * 7 - Error en force save
-   */
-  if (body.status === 2 || body.status === 6) {
-    const downloadUrl = body.url;
-
-    if (!downloadUrl) {
-      logger.error("Callback", "No se recibió URL de descarga", { key: body.key });
-      return res.json({ error: 0 });
-    }
-
-    // Resolver filename desde Redis
-    const targetFile = await store.getFilenameByKey(body.key);
-
-    if (!targetFile) {
-      logger.warn("Callback", "No se encontró archivo para key", { key: body.key });
-      return res.json({ error: 0 });
-    }
-
-    try {
-      const instanceUrl = await instanceManager.getInstanceForDocument(targetFile);
-      logger.info("Callback", "Guardando documento", { filename: targetFile, instance: instanceUrl, downloadUrl, status: body.status });
-
-      // Descargar el archivo desde OnlyOffice
-      const fileBuffer = await downloadToBuffer(downloadUrl);
-
-      // Subir a R2
-      const putCommand = new PutObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: r2Key(targetFile),
-        Body: fileBuffer,
-        ContentType: getMimeType(targetFile),
-      });
-      await s3.send(putCommand);
-
-      logger.info("Callback", "Documento guardado en R2", { filename: targetFile, r2Key: r2Key(targetFile) });
-
-      // Actualizar key mapping en Redis (el mtime cambió)
-      const head = await headObject(targetFile);
-      const newKey = generateDocumentKey(targetFile, head.LastModified);
-      await store.removeKeyMapping(body.key);
-      await store.setKeyMapping(newKey, targetFile);
-      logger.debug("Callback", "Key mapping actualizado", { oldKey: body.key, newKey, filename: targetFile });
-
-      // Actualizar la asignación del documento con el nuevo key
-      if (instanceUrl) {
-        await store.assignDocument(targetFile, instanceUrl, newKey);
-      }
-    } catch (err) {
-      logger.error("Callback", "Error guardando en R2", { filename: targetFile, error: err.message });
-    }
-  }
-
-  // OnlyOffice espera { "error": 0 } para confirmar recepción
-  res.json({ error: 0 });
-});
-
-// Subir documento a R2
-app.post("/api/upload", upload.single("file"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "No se envió archivo" });
-  }
-
-  const ext = path.extname(req.file.originalname);
-  const name = path.basename(req.file.originalname, ext);
-  const filename = `${name}-${Date.now()}${ext}`;
-
+  let payload;
   try {
-    const putCommand = new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: r2Key(filename),
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-    });
-    await s3.send(putCommand);
-
-    logger.info("Upload", "Documento subido a R2", { filename, r2Key: r2Key(filename), size: req.file.size });
-
-    res.json({
-      filename,
-      originalname: req.file.originalname,
-      size: req.file.size,
-    });
+    payload = verifyCallback(req.body, req.get("Authorization"), JWT_SECRET);
   } catch (err) {
-    logger.error("Upload", "Error subiendo a R2", { filename, error: err.message });
-    res.status(500).json({ error: "Error subiendo archivo a R2" });
+    logger.warn("Callback", "Callback con firma inválida", { error: err.message });
+    return res.status(403).json({ error: 1 });
+  }
+
+  const { status, key, url } = payload;
+  logger.info("Callback", "Callback recibido", { status, key, users: payload.users });
+
+  const session = await store.getKeySession(key);
+  if (!session) {
+    logger.warn("Callback", "Sin sesión para la key", { key });
+    return res.json({ error: 0 });
+  }
+
+  try {
+    if (status === 2 || status === 6) {
+      await saveToClient(session, url);
+      logger.info("Callback", "Documento guardado en el storage del cliente", { tenant: session.tenant, docId: session.docId, status });
+    }
+    if (status === 2 || status === 4) await closeSession(key, session);
+    res.json({ error: 0 });
+  } catch (err) {
+    logger.error("Callback", "Error guardando en el storage del cliente", { tenant: session.tenant, docId: session.docId, error: err.message });
+    res.status(500).json({ error: 1 });
   }
 });
 
-// Force save
-app.post("/api/forcesave/:filename", async (req, res) => {
-  const { filename } = req.params;
+app.post("/api/sessions/:docId/forcesave", requireServiceToken, async (req, res) => {
+  const active = await store.getDocumentInstance(docRefOf(req.tenant, req.params.docId));
+  if (!active) return res.status(404).json({ error: "El documento no tiene sesión abierta" });
+
+  const command = { c: "forcesave", key: active.documentKey };
+  const token = jwt.sign(command, JWT_SECRET);
 
   try {
-    // Obtener la instancia asignada al documento
-    const instanceUrl = await instanceManager.getInstanceForDocument(filename);
-    if (!instanceUrl) {
-      logger.warn("Forcesave", "Sin instancia asignada", { filename });
-      return res.status(404).json({ error: "Documento no tiene instancia asignada" });
-    }
-
-    logger.info("Forcesave", "Enviando forcesave", { filename, instance: instanceUrl });
-
-    const head = await headObject(filename);
-    const key = generateDocumentKey(filename, head.LastModified);
-
-    const commandBody = {
-      c: "forcesave",
-      key: key,
-    };
-
-    const token = jwt.sign(commandBody, JWT_SECRET);
-    commandBody.token = token;
-
-    const url = new URL(`${instanceUrl}/coauthoring/CommandService.ashx`);
-
-    const postData = JSON.stringify(commandBody);
-    const options = {
-      hostname: url.hostname,
-      port: url.port,
-      path: url.pathname,
+    const response = await fetch(`${active.instanceUrl}/coauthoring/CommandService.ashx`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(postData),
-        Authorization: `Bearer ${token}`,
-      },
-    };
-
-    const protocol = url.protocol === "https:" ? https : http;
-    const request = protocol.request(options, (response) => {
-      let data = "";
-      response.on("data", (chunk) => (data += chunk));
-      response.on("end", () => {
-        try {
-          res.json(JSON.parse(data));
-        } catch {
-          res.json({ raw: data });
-        }
-      });
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...command, token }),
     });
-
-    request.on("error", (err) => {
-      res.status(500).json({ error: err.message });
-    });
-
-    request.write(postData);
-    request.end();
+    res.status(response.status).type("json").send(await response.text());
   } catch (err) {
-    logger.error("Forcesave", "Error", { filename, error: err.message });
-    res.status(500).json({ error: err.message });
+    logger.error("Forcesave", "Error", { docId: req.params.docId, error: err.message });
+    res.status(502).json({ error: err.message });
   }
 });
 
-// Estado de las instancias (monitoreo)
 app.get("/api/instances/status", async (req, res) => {
   try {
-    const status = await instanceManager.getStatus();
-    res.json({ instances: status });
+    res.json({ instances: await instanceManager.getStatus() });
   } catch (err) {
     logger.error("Status", "Error obteniendo estado", { error: err.message });
     res.status(500).json({ error: "Error obteniendo estado de instancias" });
@@ -467,25 +240,17 @@ app.get("/api/instances/status", async (req, res) => {
 
 // ── Iniciar servidor ─────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor iniciado en http://localhost:${PORT}`);
-  console.log(`📄 Editor: http://localhost:${PORT}`);
-  console.log(`📁 R2 Bucket: ${R2_BUCKET}/${R2_PREFIX}`);
+  console.log(`\n🚀 Roffice escuchando en http://localhost:${PORT}`);
   console.log(`🔀 Instancias OnlyOffice: ${ONLYOFFICE_INSTANCES}`);
-  console.log(`\n⚠️  Asegúrate de que OnlyOffice y Redis están corriendo:`);
-  console.log(`   docker compose up -d\n`);
+  console.log(`🔑 Clientes autorizados: ${Object.keys(TENANTS).join(", ")}\n`);
 });
 
 // ── Graceful shutdown ────────────────────────────────────────
-process.on("SIGTERM", async () => {
+async function shutdown() {
   console.log("\n[Shutdown] Cerrando conexiones...");
   instanceManager.stop();
   await store.disconnect();
   process.exit(0);
-});
-
-process.on("SIGINT", async () => {
-  console.log("\n[Shutdown] Cerrando conexiones...");
-  instanceManager.stop();
-  await store.disconnect();
-  process.exit(0);
-});
+}
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);

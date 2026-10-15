@@ -1,21 +1,17 @@
 {
   "name": "onlyoffice-test",
   "version": "1.0.0",
-  "description": "Integración de OnlyOffice Document Server con Node.js/Express",
+  "description": "Router de sesiones de edición OnlyOffice para aplicaciones cliente",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test test.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1026.0",
-    "@aws-sdk/s3-request-presigner": "^3.1026.0",
-    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "ioredis": "^5.10.1",
-    "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
-    "uuid": "^11.1.0"
+    "jsonwebtoken": "^9.0.2"
   }
 }

@@ -9,7 +9,7 @@ RUN npm ci --omit=dev && npm cache clean --force
 
 COPY . .
 
-RUN mkdir -p files && chown -R node:node /app
+RUN chown -R node:node /app
 
 USER node
 
