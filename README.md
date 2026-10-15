@@ -95,11 +95,20 @@ El JWT del usuario no llega a Roffice: la autorización es del backend cliente. 
 
 Roffice valida `iss`, `aud` (`OIDC_AUDIENCE`) y la firma con el JWKS del realm. El claim `azp` debe estar en `TENANTS`, que también fija la `saveUrl` de cada cliente.
 
-### Alta de un cliente
+### Configuración automática (`scripts/keycloak.js`)
 
-1. Crear en el realm de Roffice el client `<cliente>-backend` (service account, audience mapper `roffice`) y entregarle `client_id` y secret.
-2. Agregar `"<cliente>-backend": { "saveUrl": "https://gateway.cliente/roffice/save-url" }` a `TENANTS`.
-3. El cliente publica la `saveUrl` **en su gateway** con una ruta que confíe en el issuer del realm de Roffice y acepte solo `azp=roffice` con su audience. El resto de sus rutas sigue validando el JWT de sus usuarios.
+Credenciales de administración en `.env.admin` (ver `.env.admin.example`), separadas de `.env` para que Roffice no las tenga en runtime. Ambos comandos son idempotentes.
+
+```bash
+# Una vez: crea el realm y el client roffice, y escribe OIDC_* en .env
+npm run keycloak -- init
+
+# Por cada cliente: crea su client, agrega la audiencia de su gateway al token de roffice
+# y lo suma a TENANTS en .env. Imprime el client_id y secret a entregar.
+npm run keycloak -- add-tenant acme-backend https://gateway.acme/roffice/save-url acme-api
+```
+
+Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **en su gateway** con una ruta que confíe en el issuer del realm de Roffice y acepte solo `azp=roffice` con su audiencia. El resto de sus rutas sigue validando el JWT de sus usuarios.
 
 ## Estructura
 
