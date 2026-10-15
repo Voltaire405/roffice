@@ -10,5 +10,5 @@ Deja Roffice escuchando en `:13000` con las 3 instancias de OnlyOffice sanas. Re
    **Hecho cuando** el log muestra `🔑 Clientes autorizados:` seguido de los tenants esperados.
 4. Consulta `http://localhost:13000/api/instances/status`.
    **Hecho cuando** las 3 instancias tienen `"healthy": true`.
-5. Ejecuta `npm test`.
-   **Hecho cuando** reporta `fail 0`.
+5. Ejecuta `npm test` y `npm run smoke`.
+   **Hecho cuando** `npm test` reporta `fail 0` y `npm run smoke` imprime solo líneas `ok:`.
