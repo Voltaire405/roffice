@@ -118,12 +118,12 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 
 ```
 ├── main.js              # Arranque: lee .env, cablea Redis, pool y OIDC, escucha
-├── app.js               # createApp: rutas de sesiones, proxy /files, callback, forcesave
-├── onlyoffice.js        # Key, config firmado y verificación del callback de OnlyOffice
+├── app.js               # createApp: traduce HTTP a la sesión de edición
+├── edit-session.js      # Sesión de edición: abrir, pestaña, proxy de archivo, callbacks, forcesave, límite por usuario
+├── tenants.js           # Adapter HTTP: guarda en el storage del tenant vía su saveUrl
+├── onlyoffice.js        # Protocolo OnlyOffice: key, config firmado, callback y CommandService
 ├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
 ├── pool.js              # Pool de instancias OnlyOffice: sticky routing y dueño de doc:
-├── open-documents.js    # Límite de documentos abiertos por usuario
-├── redis-store.js       # key → sesión, fileToken → getUrl, usuario → documentos abiertos
 ├── logger.js            # Logger estructurado + middleware de request
 ├── test.js              # Pruebas (node --test)
 ├── scripts/smoke.js     # Smoke E2E del flujo HTTP contra Redis real

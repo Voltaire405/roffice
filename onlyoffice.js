@@ -85,6 +85,22 @@ function verifyCallback(body, authorizationHeader, secret) {
   throw new Error("Callback sin token");
 }
 
+/**
+ * Adapter HTTP del CommandService de OnlyOffice: firma el comando con el secreto compartido.
+ * @returns {(instanceUrl: string, command: Object) => Promise<{status: number, body: string}>}
+ */
+function createCommandSender(secret) {
+  return async function sendCommand(instanceUrl, command) {
+    const token = jwt.sign(command, secret);
+    const response = await fetch(`${instanceUrl}/coauthoring/CommandService.ashx`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...command, token }),
+    });
+    return { status: response.status, body: await response.text() };
+  };
+}
+
 const escapeHtml = (text) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
@@ -107,4 +123,4 @@ function renderEditorPage({ config, publicUrl }) {
 </html>`;
 }
 
-module.exports = { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback, renderEditorPage };
+module.exports = { isSupportedFileType, mimeType, documentKey, buildEditorConfig, verifyCallback, renderEditorPage, createCommandSender };

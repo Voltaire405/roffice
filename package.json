@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node main.js",
     "dev": "node --watch main.js",
-    "test": "node --test test.js",
+    "test": "node --test --test-concurrency=1 test.js test/*.test.js",
     "keycloak": "node scripts/keycloak.js",
     "smoke": "node scripts/smoke.js"
   },
