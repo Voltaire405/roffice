@@ -44,3 +44,8 @@ test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
   const embedded = html.match(/DocEditor\("editor", (.*)\);<\/script>/)[1];
   assert.deepStrictEqual(JSON.parse(embedded), config);
 });
+
+test("la protección del documento queda oculta aunque el tenant la pida", () => {
+  const config = buildEditorConfig({ key: "k", title: "t", fileType: "docx", fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit: true, protect: true }, secret: "s" });
+  assert.strictEqual(config.document.permissions.protect, false);
+});
