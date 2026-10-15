@@ -116,16 +116,18 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 ## Estructura
 
 ```
-├── main.js              # Arranque: lee .env, cablea Redis, pool y OIDC, escucha
-├── app.js               # createApp: traduce HTTP a la sesión de edición
-├── edit-session.js      # Sesión de edición: abrir, pestaña, proxy de archivo, callbacks, forcesave, límite por usuario
-├── tenants.js           # Adapter HTTP: guarda en el storage del tenant vía su saveUrl
-├── onlyoffice.js        # Protocolo OnlyOffice: key, config firmado, callback y CommandService
-├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
-├── pool.js              # Pool de instancias OnlyOffice: sticky routing y dueño de doc:
-├── logger.js            # Logger estructurado + middleware de request
-├── test.js              # Pruebas unitarias del protocolo y OIDC
-├── test/                # Sesión de edición y flujo HTTP contra Redis real (DB 15, se vacía)
+├── src/
+│   ├── main.js          # Arranque: lee .env, cablea Redis, pool, OIDC y adapters, escucha
+│   ├── app.js           # createApp: traduce HTTP a la sesión de edición
+│   ├── edit-session.js  # Sesión de edición: abrir, pestaña, proxy de archivo, callbacks, forcesave, límite por usuario
+│   ├── pool.js          # Pool de instancias OnlyOffice: sticky routing y dueño de doc:
+│   ├── onlyoffice.js    # Protocolo OnlyOffice: key, config firmado, callback y CommandService
+│   ├── tenants.js       # Adapter HTTP: guarda en el storage del tenant vía su saveUrl
+│   ├── oidc.js          # Validación de tokens de servicio (JWKS) y client credentials
+│   └── logger.js        # Logger estructurado + middleware de request
+├── test/                # node --test; los de sesión y HTTP usan Redis real (DB 15, se vacía)
+├── scripts/keycloak.js  # Realm, client roffice y alta de tenants
+├── examples/            # Tenant de prueba (docs/runbooks/cliente-prueba.md)
 ├── docker-compose.yml   # Redis + 3 instancias OnlyOffice Document Server
 └── Dockerfile           # Imagen del backend
 ```
@@ -152,7 +154,7 @@ Un guardado fallido (descarga, `saveUrl` o PUT) responde `500` con `error: 1`, p
 
 Se firma con JWT todo el objeto de configuración del editor así como los comandos al `CommandService` (forcesave, drop), y se verifica el JWT de cada callback. El secret debe coincidir entre `.env` (`JWT_SECRET`) y `docker-compose.yml` (`JWT_SECRET` de cada instancia).
 
-El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `pool.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
+El pool de instancias se configura en `ONLYOFFICE_INSTANCES` como lista separada por comas de `interna|pública`: Roffice usa la interna para health checks y forcesave, y el navegador carga el editor desde la pública. Sin `|`, ambas son la misma. `src/pool.js` asigna una instancia por documento de forma sticky y persiste el mapeo en Redis, de modo que todos los editores del mismo documento caen en la misma instancia (requisito de co-edición de OnlyOffice).
 
 ## Docker Build
 

@@ -2,11 +2,11 @@
   "name": "onlyoffice-test",
   "version": "1.0.0",
   "description": "Router de sesiones de edición OnlyOffice para aplicaciones cliente",
-  "main": "main.js",
+  "main": "src/main.js",
   "scripts": {
-    "start": "node main.js",
-    "dev": "node --watch main.js",
-    "test": "node --test --test-concurrency=1 test.js test/*.test.js",
+    "start": "node src/main.js",
+    "dev": "node --watch src/main.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
     "keycloak": "node scripts/keycloak.js"
   },
   "dependencies": {

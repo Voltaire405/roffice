@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { createEditSessions, SessionError } = require("../edit-session");
-const { createPool } = require("../pool");
+const { createEditSessions, SessionError } = require("../src/edit-session");
+const { createPool } = require("../src/pool");
 const { createTestRedis } = require("./redis");
 
 const TENANT = "tenant-a";

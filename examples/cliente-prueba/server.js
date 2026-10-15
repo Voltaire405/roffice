@@ -4,7 +4,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const { S3Client, ListObjectsV2Command, HeadObjectCommand, GetObjectCommand, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-const { createOidc } = require("../../oidc");
+const { createOidc } = require("../../src/oidc");
 
 function requireEnv(name) {
   const value = process.env[name];
