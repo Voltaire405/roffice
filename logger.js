@@ -55,7 +55,8 @@ function requestLogger(req, res, next) {
     const duration = Date.now() - start;
     const level = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
 
-    logger[level]("HTTP", `${req.method} ${req.originalUrl}`, {
+    // La ruta con patrón (/files/:fileToken) evita dejar tokens de acceso en los logs.
+    logger[level]("HTTP", `${req.method} ${req.route?.path ?? req.path}`, {
       status: res.statusCode,
       duration: `${duration}ms`,
       ip: req.ip,
