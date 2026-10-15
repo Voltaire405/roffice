@@ -32,8 +32,7 @@ docker compose up -d
 npm run dev
 
 # Pruebas
-npm test
-npm run smoke   # E2E contra el Redis del compose, con IdP, storage y OnlyOffice falsos
+npm test   # unitarios + flujo HTTP en proceso contra el Redis del compose (DB 15)
 ```
 
 ## Flujo
@@ -125,8 +124,8 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 ├── oidc.js              # Validación de tokens de servicio (JWKS) y client credentials
 ├── pool.js              # Pool de instancias OnlyOffice: sticky routing y dueño de doc:
 ├── logger.js            # Logger estructurado + middleware de request
-├── test.js              # Pruebas (node --test)
-├── scripts/smoke.js     # Smoke E2E del flujo HTTP contra Redis real
+├── test.js              # Pruebas unitarias del protocolo y OIDC
+├── test/                # Sesión de edición y flujo HTTP contra Redis real (DB 15, se vacía)
 ├── docker-compose.yml   # Redis + 3 instancias OnlyOffice Document Server
 └── Dockerfile           # Imagen del backend
 ```
