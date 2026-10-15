@@ -81,7 +81,7 @@ async openEditor(docId: string) {
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.
 - `docId` se aísla por cliente (`azp:docId`), así dos clientes pueden usar el mismo id.
-- Cada `azp:user.id` tiene hasta `MAX_DOCS_PER_USER` documentos abiertos (por defecto 1). Al abrir otro, Roffice desconecta al usuario del más antiguo con el comando `drop` y borra su pestaña. El tenant abre el editor en la pestaña con nombre `roffice` (`docs/HANDOFF.md`, paso 6), así el nuevo documento reemplaza al anterior en la misma pestaña.
+- Cada `azp:user.id` tiene hasta `MAX_DOCS_PER_USER` documentos abiertos (por defecto 1). Al abrir otro, Roffice desconecta al usuario del más antiguo con el comando `drop` y borra su pestaña. El tenant abre el editor en la pestaña con nombre `roffice`, así el nuevo documento reemplaza al anterior en la misma pestaña.
 
 ### `POST saveUrl` (Roffice → backend cliente)
 

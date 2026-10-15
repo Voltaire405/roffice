@@ -1,4 +1,4 @@
-// Tenant de prueba: implementación de referencia de docs/HANDOFF.md contra un prefijo sandbox del storage.
+// Tenant de prueba: implementación de referencia de un tenant contra un prefijo sandbox del storage.
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");

@@ -20,6 +20,6 @@ Deja un tenant operativo: su client en el realm `roffice`, la audiencia de su ga
    - `token_endpoint` y `client_id`;
    - que el `client_secret` está en la salida del paso 1;
    - lo que su gateway debe aceptar en la `saveUrl`: `iss` del realm `roffice`, `azp=roffice`, `aud=<audiencia>`;
-   - `docs/HANDOFF.md` con la tabla «Valores de tu tenant» completada (sin el secret), como especificación de lo que el tenant construye.
+   - los 6 valores de la tabla «Valores del tenant» (el secret, solo por el canal seguro).
 
-   **Hecho cuando** el reporte contiene los 4 elementos.
+   **Hecho cuando** el reporte contiene los 5 elementos.
