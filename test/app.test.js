@@ -37,7 +37,7 @@ const svc = (aud = "roffice") => jwt.sign({ azp: "cliente-backend", aud }, priva
 const post = (path, body, token) =>
   fetch(RO + path, { method: "POST", headers: { "Content-Type": "application/json", ...(token && { Authorization: `Bearer ${token}` }) }, body: JSON.stringify(body) });
 const callback = (payload, secret = JWT_SECRET) => post("/api/callback", { ...payload, token: jwt.sign(payload, secret) });
-const configOf = (html) => JSON.parse(html.match(/DocEditor\("editor", (.*)\);<\/script>/)[1]);
+const configOf = (html) => JSON.parse(html.match(/const config = (.*);\n/)[1]);
 
 /** Pide la sesión, canjea el enlace y devuelve la pestaña con su cookie. */
 async function openTab(body) {

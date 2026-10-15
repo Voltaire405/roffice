@@ -41,7 +41,7 @@ test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
   const html = renderEditorPage({ config, publicUrl: "http://oo" });
 
   assert.strictEqual(html.match(/<script/g).length, 2);
-  const embedded = html.match(/DocEditor\("editor", (.*)\);<\/script>/)[1];
+  const embedded = html.match(/const config = (.*);\n/)[1];
   assert.deepStrictEqual(JSON.parse(embedded), config);
 });
 
@@ -52,4 +52,13 @@ test("la protección del documento solo aparece si el tenant la pide", () => {
   assert.strictEqual(open({ edit: true }).document.permissions.protect, false);
   assert.strictEqual(open({ edit: true, protect: "true" }).document.permissions.protect, false);
   assert.strictEqual(open({ edit: true, protect: true }).document.permissions.protect, true);
+});
+
+test("el editor ofrece terminar la edición y la página cierra la pestaña al pedirlo", () => {
+  const config = buildEditorConfig({ key: "k", title: "t", fileType: "docx", fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit: true }, secret: "s" });
+  assert.strictEqual(config.editorConfig.customization.close.visible, true);
+
+  const html = renderEditorPage({ config, publicUrl: "http://oo" });
+  assert.match(html, /events: \{ onRequestClose: finishEditing \}/);
+  assert.match(html, /window\.close\(\)/);
 });

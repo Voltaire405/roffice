@@ -62,6 +62,7 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
         forcesave: true,
         comments: true,
         help: false,
+        close: { visible: true, text: "Terminar edición y cerrar" },
         ...(returnUrl && { goback: { url: returnUrl, blank: false } }),
       },
     },
@@ -117,7 +118,24 @@ function renderEditorPage({ config, publicUrl }) {
 </head>
 <body>
   <div id="editor"></div>
-  <script>new DocsAPI.DocEditor("editor", ${configJson});</script>
+  <script>
+    const config = ${configJson};
+    const editor = new DocsAPI.DocEditor("editor", { ...config, events: { onRequestClose: finishEditing } });
+
+    // OnlyOffice llama a onRequestClose desde su botón de cerrar tras confirmar los cambios sin guardar;
+    // al destruir el editor la sesión se libera y el guardado llega ~10 s después.
+    function finishEditing() {
+      editor.destroyEditor();
+      window.close();
+      // El navegador solo deja cerrar pestañas abiertas por script (window.open del tenant).
+      setTimeout(() => {
+        if (window.closed) return;
+        const returnUrl = config.editorConfig.customization.goback?.url;
+        if (returnUrl) location.href = returnUrl;
+        else document.body.textContent = "Edición terminada. Ya puedes cerrar esta pestaña.";
+      }, 300);
+    }
+  </script>
 </body>
 </html>`;
 }
