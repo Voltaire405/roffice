@@ -86,14 +86,20 @@ Roffice envía `Authorization: Bearer <token de servicio de Roffice>` y `{ "docI
 
 ## Autenticación
 
-El JWT del usuario no llega a Roffice: la autorización es del backend cliente. Entre servicios se usa OIDC *client credentials*:
+El JWT del usuario no llega a Roffice: la autorización es del backend cliente. Entre servicios se usa OIDC *client credentials* sobre un **realm propio de Roffice** (`OIDC_ISSUER`). El realm del cliente queda solo para sus usuarios; sumar un cliente es dar de alta un client, sin cambiar código.
 
-| Client en Keycloak | Uso | Configuración |
+| Client en el realm de Roffice | Uso | Configuración |
 |---|---|---|
-| `cliente-backend` | Llama a `/api/sessions` | Service account + audience mapper `roffice` |
-| `roffice` | Llama a la `saveUrl` del cliente | Service account + audience mapper del backend cliente |
+| `<cliente>-backend` (uno por cliente) | Llama a `/api/sessions` | Service account + audience mapper `roffice`; su `client_id` va en `TENANTS` |
+| `roffice` | Llama a la `saveUrl` de cada cliente | Service account + audience mapper del backend cliente |
 
-Roffice valida `iss`, `aud` (`OIDC_AUDIENCE`) y la firma con el JWKS del issuer. El claim `azp` debe estar en `TENANTS`, que también fija la `saveUrl` de cada cliente.
+Roffice valida `iss`, `aud` (`OIDC_AUDIENCE`) y la firma con el JWKS del realm. El claim `azp` debe estar en `TENANTS`, que también fija la `saveUrl` de cada cliente.
+
+### Alta de un cliente
+
+1. Crear en el realm de Roffice el client `<cliente>-backend` (service account, audience mapper `roffice`) y entregarle `client_id` y secret.
+2. Agregar `"<cliente>-backend": { "saveUrl": "https://gateway.cliente/roffice/save-url" }` a `TENANTS`.
+3. El cliente publica la `saveUrl` **en su gateway** con una ruta que confíe en el issuer del realm de Roffice y acepte solo `azp=roffice` con su audience. El resto de sus rutas sigue validando el JWT de sus usuarios.
 
 ## Estructura
 
