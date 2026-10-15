@@ -12,6 +12,5 @@ Busca el síntoma, aplica la solución y repite el paso que falló. Si el sínto
 | Pestaña del editor → `403` al recargar, o el editor pasa a solo lectura | El mismo usuario abrió otro documento: `MAX_DOCS_PER_USER` (por defecto 1) lo desconectó del anterior | Reabrir el documento desde la aplicación del tenant |
 | Pestaña con `410` «El enlace expiró o ya se usó» | `editorUrl` dura 60 s y es de un solo uso | El tenant pide un `editorUrl` nuevo en cada apertura |
 | La pestaña del editor no aparece | El tenant llama `window.open` después de un `await` | `docs/HANDOFF.md`, paso 6 |
-| Roffice termina con `SyntaxError ... is not valid JSON` en `getKeySession` | Versión anterior a Express 5 y valores de Redis de la app previa | Actualizar a la versión actual: ignora esos valores y Express 5 captura errores async |
 | El editor avisa «copia de seguridad del servidor» | Un guardado falló (ej. Roffice caído) y la key quedó en Redis | Reabrir y cerrar: el siguiente guardado persiste los cambios (verificado) |
 | El documento editado no llega al storage | `saveUrl` rechaza el token de `roffice` o el PUT falla | Leer los logs con tag `Callback`: nombran el paso que respondió error |

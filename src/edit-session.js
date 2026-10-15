@@ -90,15 +90,6 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
     return value ? JSON.parse(value) : null;
   };
 
-  async function getSessionRecord(key) {
-    try {
-      return await getJson(`key:${key}`);
-    } catch {
-      // Valor de la versión anterior (key → filename en texto plano): no es una sesión de este formato.
-      return null;
-    }
-  }
-
   async function closeSession(key, session) {
     await pool.release(docRefOf(session.tenant, session.docId));
     await redis.del(`key:${key}`, `file:${session.fileToken}`);
@@ -151,7 +142,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
       // ponytail: una edición externa del documento con la sesión abierta no rota la key hasta status 2/4 o el TTL de 24 h.
       const { instanceUrl, publicUrl, documentKey: key, joined } = await pool.assign(docRef, documentKey(docRef, version));
 
-      let session = await getSessionRecord(key);
+      let session = await getJson(`key:${key}`);
       if (!session) {
         session = { tenant, docId, version, fileType, fileToken: crypto.randomUUID() };
         await setJson(`key:${key}`, session);
@@ -219,7 +210,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
    */
   async function handleCallback({ status, key, url, users }) {
     logger.info("Callback", "Callback recibido", { status, key, users });
-    const session = await getSessionRecord(key);
+    const session = await getJson(`key:${key}`);
     if (!session) {
       logger.warn("Callback", "Sin sesión para la key", { key });
       return;

@@ -170,9 +170,8 @@ test("POST /api/sessions/:docId/forcesave reenvía la respuesta del CommandServi
   assert.strictEqual(commands.at(-1).c, "forcesave");
 });
 
-test("un callback de una key con formato antiguo no tumba el servidor", async () => {
-  await redis.set("key:legacy", "archivo-viejo.docx", "EX", 60);
-  const legacy = await callback({ status: 4, key: "legacy" });
-  assert.deepStrictEqual([legacy.status, (await legacy.json()).error], [200, 0]);
-  assert.ok((await fetch(RO + "/api/instances/status")).ok, "el servidor sigue vivo");
+test("GET /api/instances/status reporta la carga de cada instancia", async () => {
+  const { instances } = await (await fetch(RO + "/api/instances/status")).json();
+  assert.strictEqual(instances.length, 1);
+  assert.ok(instances[0].activeDocuments > 0);
 });
