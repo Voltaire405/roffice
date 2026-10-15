@@ -19,6 +19,7 @@ function createOidc({ issuer, audience, clientId, clientSecret }) {
   let discovery = null;
   let publicKeys = new Map();
   let jwksFetchedAt = 0;
+  let jwksRefresh = null;
   let serviceToken = null;
 
   async function getDiscovery() {
@@ -26,15 +27,20 @@ function createOidc({ issuer, audience, clientId, clientSecret }) {
     return discovery;
   }
 
-  async function refreshJwks() {
-    if (Date.now() - jwksFetchedAt < JWKS_REFRESH_MIN_INTERVAL) return;
+  // Dentro del intervalo devuelve la última recarga, aún en curso o ya resuelta: los tokens que llegan
+  // a la vez en frío esperan la misma descarga del JWKS en lugar de verlo vacío.
+  function refreshJwks() {
+    if (Date.now() - jwksFetchedAt < JWKS_REFRESH_MIN_INTERVAL) return jwksRefresh;
     jwksFetchedAt = Date.now();
-    const { keys } = await fetchJson((await getDiscovery()).jwks_uri);
-    publicKeys = new Map(
-      keys
-        .filter((jwk) => jwk.use !== "enc")
-        .map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: "jwk" })])
-    );
+    jwksRefresh = (async () => {
+      const { keys } = await fetchJson((await getDiscovery()).jwks_uri);
+      publicKeys = new Map(
+        keys
+          .filter((jwk) => jwk.use !== "enc")
+          .map((jwk) => [jwk.kid, crypto.createPublicKey({ key: jwk, format: "jwk" })])
+      );
+    })();
+    return jwksRefresh;
   }
 
   async function verifyServiceToken(token) {

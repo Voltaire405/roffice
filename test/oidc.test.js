@@ -27,6 +27,8 @@ test("oidc valida tokens de servicio con el JWKS y cachea el token propio", asyn
   const oidc = createOidc({ issuer, audience: "roffice", clientId: "roffice", clientSecret: "s" });
   const sign = (claims) => jwt.sign(claims, privateKey, { algorithm: "RS256", keyid: "k1", issuer, expiresIn: 60 });
 
+  const concurrent = await Promise.all([1, 2].map(() => oidc.verifyServiceToken(sign({ azp: "cliente", aud: "roffice" }))));
+  assert.deepStrictEqual(concurrent.map((claims) => claims.azp), ["cliente", "cliente"], "dos tokens a la vez esperan la misma carga del JWKS");
   assert.strictEqual((await oidc.verifyServiceToken(sign({ azp: "cliente", aud: "roffice" }))).azp, "cliente");
   await assert.rejects(oidc.verifyServiceToken(sign({ azp: "cliente", aud: "otro" })));
   await assert.rejects(oidc.verifyServiceToken(jwt.sign({ aud: "roffice" }, "hmac", { keyid: "k1", issuer })));
