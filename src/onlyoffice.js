@@ -49,7 +49,7 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
         download: permissions.download ?? true,
         print: permissions.print ?? true,
         chat: permissions.chat ?? true,
-        protect: false,
+        protect: permissions.protect === true,
       },
     },
     editorConfig: {

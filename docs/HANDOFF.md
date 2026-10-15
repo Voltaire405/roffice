@@ -51,7 +51,7 @@ Header `Authorization: Bearer <tu token de servicio>`. Body JSON:
 | `title` | string, opcional | Nombre visible; por defecto `<docId>.<fileType>` |
 | `getUrl` | URL | GET prefirmado del objeto, vida de minutos. Roffice lo descarga en servidor; nunca llega al navegador |
 | `user` | `{ id, name }` | `id` = `sub` del JWT del usuario |
-| `permissions` | objeto, opcional | `edit` (`false` abre en solo lectura; solo aplica a `docx`/`xlsx`/`pptx`), `comment`, `review`, `download`, `print`, `chat`. «Proteger documento» está siempre oculto y no se puede activar |
+| `permissions` | objeto, opcional | `edit` (`false` abre en solo lectura; solo aplica a `docx`/`xlsx`/`pptx`), `comment`, `review`, `download`, `print`, `chat`, `protect` (`true` muestra «Proteger documento»; oculto si no lo envías) |
 | `returnUrl` | URL, opcional | Destino del botón «Abrir ubicación del archivo» del editor |
 
 #### Formatos

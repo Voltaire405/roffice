@@ -45,7 +45,11 @@ test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
   assert.deepStrictEqual(JSON.parse(embedded), config);
 });
 
-test("la protección del documento queda oculta aunque el tenant la pida", () => {
-  const config = buildEditorConfig({ key: "k", title: "t", fileType: "docx", fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit: true, protect: true }, secret: "s" });
-  assert.strictEqual(config.document.permissions.protect, false);
+test("la protección del documento solo aparece si el tenant la pide", () => {
+  const open = (permissions) =>
+    buildEditorConfig({ key: "k", title: "t", fileType: "docx", fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions, secret: "s" });
+
+  assert.strictEqual(open({ edit: true }).document.permissions.protect, false);
+  assert.strictEqual(open({ edit: true, protect: "true" }).document.permissions.protect, false);
+  assert.strictEqual(open({ edit: true, protect: true }).document.permissions.protect, true);
 });
