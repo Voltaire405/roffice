@@ -98,19 +98,6 @@ app.post("/api/documents/:name", express.raw({ type: "*/*", limit: MAX_UPLOAD_BY
   }
 });
 
-// Patrones de ejemplo del menú «Insertar patrón» del editor de texto.
-const PATTERNS = ["asunto", "fechaCarta", "numeroRadicado"];
-const PATTERN_GROUPS = [
-  {
-    label: "destinatario",
-    children: [
-      { label: "Nombre", pattern: "destinatario.nombre" },
-      { label: "Correo", pattern: "destinatario.correo" },
-      { label: "Correo trabajo", pattern: "destinatario.propiedades.correotrabajo" },
-    ],
-  },
-];
-
 // Equivale al endpoint «abrir editor» del HANDOFF (paso 3); el usuario se simula desde la UI.
 app.post("/api/documents/:name/editor", express.json(), async (req, res) => {
   const key = sandboxKey(req.params.name);
@@ -133,8 +120,9 @@ app.post("/api/documents/:name/editor", express.json(), async (req, res) => {
         user: { id: `prueba-${userName.toLowerCase().replace(/\W+/g, "-")}`, name: userName },
         permissions: { edit: req.body.edit !== false },
         returnUrl: PUBLIC_URL,
-        patterns: PATTERNS,
-        patternGroups: PATTERN_GROUPS,
+        // Los patrones de la UI viajan tal cual: Roffice valida su forma y responde 400 si no la cumple.
+        patterns: req.body.patterns,
+        patternGroups: req.body.patternGroups,
       }),
     });
     const body = await session.json();

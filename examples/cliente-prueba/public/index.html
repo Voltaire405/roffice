@@ -8,6 +8,7 @@
     body { font: 15px/1.5 system-ui, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; color: #1d1d1f; }
     h1 { font-size: 22px; } h2 { font-size: 17px; margin-top: 28px; }
     table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e5e5; }
+    textarea { width: 100%; box-sizing: border-box; font: 13px/1.4 ui-monospace, monospace; }
     button { cursor: pointer; } .muted { color: #6e6e73; } #error { color: #b00020; }
   </style>
 </head>
@@ -18,6 +19,13 @@
   <label>Usuario simulado <input id="userName" value="Ana Prueba"></label>
   <label><input id="edit" type="checkbox" checked> Edición</label>
   <p id="error"></p>
+
+  <details>
+    <summary>Patrones del menú «Insertar patrón» (solo docx en edición)</summary>
+    <p class="muted"><code>patterns</code>: string[]. <code>patternGroups</code>: <code>[{ label, children: [{ label, pattern }] }]</code>, un nivel de grupo. Se envían tal cual en cada apertura; vacía el campo para no enviar patrones.</p>
+    <textarea id="patterns" rows="16" spellcheck="false"></textarea>
+    <button id="resetPatterns">Restaurar ejemplo</button>
+  </details>
 
   <h2>Documentos</h2>
   <input id="file" type="file" accept=".docx,.doc,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp">
@@ -30,6 +38,49 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const showError = (message) => ($("error").textContent = message || "");
+
+    const EXAMPLE_PATTERNS = {
+      patterns: ["asunto", "fechaCarta", "numeroRadicado"],
+      patternGroups: [
+        {
+          label: "destinatario",
+          children: [
+            { label: "Nombre", pattern: "destinatario.nombre" },
+            { label: "Saludo (sin valor)", pattern: "destinatario.saludo" },
+            { label: "Tipo de identificación", pattern: "destinatario.tipoIdentificacion" },
+            { label: "Número de identificación", pattern: "destinatario.numeroIdentificacion" },
+            { label: "Correo", pattern: "destinatario.correo" },
+            { label: "Teléfono", pattern: "destinatario.telefono" },
+            { label: "Móvil", pattern: "destinatario.movil" },
+            { label: "WhatsApp", pattern: "destinatario.whatsapp" },
+            { label: "Dirección", pattern: "destinatario.direccion" },
+            { label: "Correo trabajo", pattern: "destinatario.propiedades.correotrabajo" },
+          ],
+        },
+      ],
+    };
+    const PATTERNS_STORAGE_KEY = "roffice-prueba-patterns";
+
+    function restorePatterns() {
+      let saved = null;
+      try { saved = localStorage.getItem(PATTERNS_STORAGE_KEY); } catch {}
+      $("patterns").value = saved ?? JSON.stringify(EXAMPLE_PATTERNS, null, 2);
+    }
+    $("patterns").oninput = () => { try { localStorage.setItem(PATTERNS_STORAGE_KEY, $("patterns").value); } catch {} };
+    $("resetPatterns").onclick = () => { $("patterns").value = JSON.stringify(EXAMPLE_PATTERNS, null, 2); $("patterns").oninput(); };
+    restorePatterns();
+
+    /** Campos `patterns` y `patternGroups` del textarea; vacío = sin patrones. */
+    function readPatterns() {
+      const text = $("patterns").value.trim();
+      if (!text) return {};
+      try {
+        const { patterns, patternGroups } = JSON.parse(text);
+        return { patterns, patternGroups };
+      } catch (err) {
+        throw new Error(`Patrones: JSON inválido (${err.message})`);
+      }
+    }
 
     async function loadDocuments() {
       const res = await fetch("/api/documents");
@@ -56,10 +107,11 @@
       const tab = window.open("", "roffice");
       const isNewTab = isBlank(tab);
       try {
+        const patterns = readPatterns();
         const res = await fetch(`/api/documents/${encodeURIComponent(name)}/editor`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userName: $("userName").value, edit: $("edit").checked }),
+          body: JSON.stringify({ userName: $("userName").value, edit: $("edit").checked, ...patterns }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
