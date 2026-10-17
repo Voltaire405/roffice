@@ -26,6 +26,8 @@ class SessionError extends Error {
  * @property {string} [title]
  * @property {string} [returnUrl]
  * @property {Object} [permissions]
+ * @property {string[]} [patterns]
+ * @property {{ label: string, children: { label: string, pattern: string }[] }[]} [patternGroups]
  */
 
 /**
@@ -45,13 +47,25 @@ function isHttpUrl(value) {
   }
 }
 
-function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl }) {
+const isStringList = (value) => Array.isArray(value) && value.every((item) => typeof item === "string");
+const isPatternGroupList = (value) =>
+  Array.isArray(value) &&
+  value.every(
+    (group) =>
+      typeof group?.label === "string" &&
+      Array.isArray(group.children) &&
+      group.children.every((child) => typeof child?.label === "string" && typeof child?.pattern === "string")
+  );
+
+function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl, patterns, patternGroups }) {
   if (typeof docId !== "string" || !docId) return "docId requerido";
   if (typeof version !== "string" || !version) return "version requerida";
   if (!isSupportedFileType(fileType)) return "fileType no soportado";
   if (!isHttpUrl(getUrl)) return "getUrl debe ser una URL http(s)";
   if (typeof user?.id !== "string" || typeof user?.name !== "string") return "user.id y user.name requeridos";
   if (returnUrl !== undefined && !isHttpUrl(returnUrl)) return "returnUrl debe ser una URL http(s)";
+  if (patterns !== undefined && !isStringList(patterns)) return "patterns debe ser una lista de strings";
+  if (patternGroups !== undefined && !isPatternGroupList(patternGroups)) return "patternGroups debe ser una lista de { label, children: [{ label, pattern }] }";
   return null;
 }
 
@@ -81,9 +95,10 @@ const docRefOf = (tenant, docId) => `${tenant}:${docId}`;
  * @param {(session: SessionRecord, downloadUrl: string) => Promise<void>} deps.saveToTenant - sube la versión editada al storage del tenant
  * @param {string} deps.jwtSecret - secreto compartido con OnlyOffice
  * @param {string} deps.backendUrl - URL de Roffice vista por los contenedores de OnlyOffice
+ * @param {string} deps.pluginsUrl - URL de los plugins de Roffice vista por el navegador
  * @param {number} deps.maxDocsPerUser - documentos abiertos a la vez por usuario; abrir otro desconecta del más antiguo
  */
-function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret, backendUrl, maxDocsPerUser }) {
+function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret, backendUrl, pluginsUrl, maxDocsPerUser }) {
   const setJson = (key, value, ttl = SESSION_TTL_SECONDS) => redis.set(key, JSON.stringify(value), "EX", ttl);
   const getJson = async (key) => {
     const value = await redis.get(key);
@@ -133,7 +148,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
     const problem = validateOpenRequest(request);
     if (problem) throw new SessionError("invalid_request", problem);
 
-    const { docId, version, fileType, getUrl, user, returnUrl, permissions = {} } = request;
+    const { docId, version, fileType, getUrl, user, returnUrl, permissions = {}, patterns, patternGroups } = request;
     const docRef = docRefOf(tenant, docId);
 
     try {
@@ -159,6 +174,9 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
         user,
         permissions,
         returnUrl,
+        patterns,
+        patternGroups,
+        pluginsUrl,
         secret: jwtSecret,
       });
 

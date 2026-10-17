@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
+const PATTERNS_PLUGIN_GUID = require("../plugins/patterns/config.json").guid;
+
 // Solo los OOXML se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
 const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx"]);
 
@@ -32,8 +34,20 @@ function documentKey(docRef, version) {
   return crypto.createHash("sha256").update(`${docRef}\n${version}`).digest("hex");
 }
 
-function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, secret }) {
+/** Plugin «Insertar patrón» (plugins/patterns), solo en el editor de texto en edición y si el tenant envió patrones. */
+function patternsPlugin({ canEdit, documentType, patterns = [], patternGroups = [], pluginsUrl }) {
+  if (!canEdit || documentType !== "word" || (patterns.length === 0 && patternGroups.length === 0)) return undefined;
+  return {
+    autostart: [PATTERNS_PLUGIN_GUID],
+    pluginsData: [`${pluginsUrl}/patterns/config.json`],
+    options: { [PATTERNS_PLUGIN_GUID]: { patterns, patternGroups } },
+  };
+}
+
+function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, patterns, patternGroups, pluginsUrl, secret }) {
   const canEdit = permissions.edit === true && EDITABLE_FILE_TYPES.has(fileType);
+  const { documentType } = FILE_TYPES[fileType];
+  const plugins = patternsPlugin({ canEdit, documentType, patterns, patternGroups, pluginsUrl });
   const config = {
     height: "100%",
     width: "100%",
@@ -65,8 +79,9 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
         close: { visible: true, text: "Terminar edición y cerrar" },
         ...(returnUrl && { goback: { url: returnUrl, blank: false } }),
       },
+      ...(plugins && { plugins }),
     },
-    documentType: FILE_TYPES[fileType].documentType,
+    documentType,
   };
   return { ...config, token: jwt.sign(config, secret) };
 }

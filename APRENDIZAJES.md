@@ -131,3 +131,13 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
   }));
 });
 ```
+
+## 12. Plugin de patrones servido desde Roffice (OnlyOffice 10.0)
+
+`plugins/patterns/` se carga con `editorConfig.plugins.pluginsData` desde `PUBLIC_URL/plugins`, no desde la instancia:
+
+- El editor descarga el `config.json` con `fetch` desde el origen de la instancia: `/plugins` responde `Access-Control-Allow-Origin: *`.
+- `plugins.js` es una copia de `sdkjs-plugins/v1/plugins.js` del contenedor. Al actualizar la imagen de OnlyOffice (`documentserver:latest`), vuelve a copiarlo (`docker cp onlyoffice-ds-1:/var/www/onlyoffice/documentserver/sdkjs-plugins/v1/plugins.js plugins/patterns/`) y repite la prueba del menú.
+- `AddContextMenuItem` exige `guid` del plugin en el objeto; sin él, el SDK lanza `Cannot read properties of undefined` y el editor muestra un diálogo de error del documento.
+- El SDK define su propio `event_onContextMenuClick` y pisa `attachEvent("onContextMenuClick")`: el clic se registra por id con `attachContextMenuClickEvent`.
+- Los patrones llegan en `Asc.plugin.info.options` (las `options[guid]` del config). El `text` de los ítems se muestra literal: OnlyOffice escapa el HTML.

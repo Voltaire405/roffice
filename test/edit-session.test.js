@@ -44,6 +44,8 @@ test("open rechaza pedidos inválidos con invalid_request", async (t) => {
   const { sessions } = await setup(t);
   await rejectsWith(sessions.open(TENANT, { ...request("a.docx"), fileType: "exe" }), "invalid_request");
   await rejectsWith(sessions.open(TENANT, { ...request("a.docx"), getUrl: "ftp://x" }), "invalid_request");
+  await rejectsWith(sessions.open(TENANT, { ...request("a.docx"), patterns: "asunto" }), "invalid_request");
+  await rejectsWith(sessions.open(TENANT, { ...request("a.docx"), patternGroups: [{ label: "g", children: [{ label: "x" }] }] }), "invalid_request");
 });
 
 test("el enlace de un solo uso abre la pestaña con el config del editor", async (t) => {

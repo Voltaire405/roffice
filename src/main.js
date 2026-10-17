@@ -18,6 +18,8 @@ const REDIS_URL = process.env.REDIS_URL || "redis://localhost:16379";
 const ONLYOFFICE_INSTANCES = process.env.ONLYOFFICE_INSTANCES || "http://localhost:18080,http://localhost:18081,http://localhost:18082";
 const JWT_SECRET = process.env.JWT_SECRET || "my-secret-key-change-me";
 const TENANTS = JSON.parse(requireEnv("TENANTS"));
+// URL de Roffice vista por el navegador (pestaña del editor y plugins).
+const PUBLIC_URL = process.env.PUBLIC_URL || "http://localhost:13000";
 
 const redis = new Redis(REDIS_URL, { retryStrategy: (times) => Math.min(times * 200, 5000), maxRetriesPerRequest: 3 });
 redis.on("error", (err) => console.error("[Redis] Error de conexión:", err.message));
@@ -41,6 +43,7 @@ const sessions = createEditSessions({
   jwtSecret: JWT_SECRET,
   // URL de Roffice vista por los contenedores de OnlyOffice.
   backendUrl: process.env.BACKEND_URL || "http://host.docker.internal:13000",
+  pluginsUrl: `${PUBLIC_URL}/plugins`,
   maxDocsPerUser: Math.max(1, Number(process.env.MAX_DOCS_PER_USER) || 1),
 });
 
@@ -50,7 +53,7 @@ const app = createApp({
   sessions,
   pool,
   jwtSecret: JWT_SECRET,
-  publicUrl: process.env.PUBLIC_URL || "http://localhost:13000",
+  publicUrl: PUBLIC_URL,
 });
 
 // Express 5 también invoca este callback cuando el puerto falla (ej. EADDRINUSE).

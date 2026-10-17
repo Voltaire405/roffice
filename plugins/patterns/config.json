@@ -1,0 +1,22 @@
+{
+  "name": "Patrones",
+  "guid": "asc.{CC358DEE-73C2-4887-8D9B-206832B31D3C}",
+  "version": "1.0.0",
+  "variations": [
+    {
+      "description": "Inserta patrones ${...} desde el menú contextual.",
+      "url": "index.html",
+      "icons": [],
+      "type": "system",
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "isVisual": false,
+      "isModal": false,
+      "isInsideMode": false,
+      "initDataType": "none",
+      "initData": "",
+      "events": ["onContextMenuShow", "onContextMenuClick"],
+      "store": {}
+    }
+  ]
+}

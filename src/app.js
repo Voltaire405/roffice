@@ -1,3 +1,4 @@
+const path = require("path");
 const { Readable } = require("stream");
 const { pipeline } = require("stream/promises");
 const express = require("express");
@@ -44,6 +45,8 @@ function createApp({ tenants, oidc, sessions, pool, jwtSecret, publicUrl }) {
   const app = express();
   app.use(requestLogger);
   app.use(express.json());
+  // El editor descarga el config.json del plugin con fetch desde el origen de la instancia de OnlyOffice.
+  app.use("/plugins", express.static(path.join(__dirname, "..", "plugins"), { setHeaders: (res) => res.set("Access-Control-Allow-Origin", "*") }));
 
   async function requireServiceToken(req, res, next) {
     const token = req.get("Authorization")?.replace(/^Bearer /, "");
