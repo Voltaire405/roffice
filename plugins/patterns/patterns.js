@@ -33,7 +33,16 @@
     plugin.callCommand(() => Api.GetDocument().GetRangeBySelect().AddText(Asc.scope.text, "before"), false);
   }
 
-  plugin.init = function () {};
+  // Idioma del texto (el del selector de la barra de estado): vive en el documento, no en editorConfig.
+  // Se fija en el texto por defecto: lo que tenga idioma explícito lo conserva. No se puede condicionar a que el
+  // documento «no traiga idioma»: GetLanguage() devuelve en-US en ambos casos. El literal va inline porque
+  // callCommand serializa la función.
+  plugin.init = function () {
+    plugin.callCommand(() => {
+      const textPr = Api.GetDocument().GetDefaultTextPr();
+      textPr.SetLanguage("es-CO");
+    }, false);
+  };
 
   plugin.attachEvent("onContextMenuShow", function (options) {
     // Sin guid, AddContextMenuItem lanza dentro del SDK y el editor muestra un error del documento.

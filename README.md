@@ -77,7 +77,7 @@ async openEditor(docId: string) {
 ```
 
 - `returnUrl` (opcional): destino del botón «volver» del editor (`customization.goback`).
-- `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición.
+- `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición, con o sin patrones. Ese mismo plugin fija `es-CO` como idioma del texto por defecto (`editorConfig.lang` solo traduce la interfaz y el idioma del texto vive en el documento).
 
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.

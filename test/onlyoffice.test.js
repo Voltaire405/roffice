@@ -63,7 +63,7 @@ test("el editor ofrece terminar la edición y la página cierra la pestaña al p
   assert.match(html, /window\.close\(\)/);
 });
 
-test("el plugin de patrones solo se carga en el editor de texto en edición y con patrones del tenant", () => {
+test("el plugin de Roffice solo se carga en el editor de texto en edición, con o sin patrones del tenant", () => {
   const open = ({ fileType = "docx", edit = true, ...patterns }) =>
     buildEditorConfig({ key: "k", title: "t", fileType, fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit }, pluginsUrl: "https://roffice/plugins", secret: "s", ...patterns });
   const patterns = ["asunto"];
@@ -74,7 +74,8 @@ test("el plugin de patrones solo se carga en el editor de texto en edición y co
   assert.deepStrictEqual(plugins.options[guid], { patterns, patternGroups: [] });
 
   assert.ok(open({ patternGroups: [{ label: "g", children: [] }] }).editorConfig.plugins);
-  assert.strictEqual(open({}).editorConfig.plugins, undefined);
+  const sinPatrones = open({}).editorConfig.plugins;
+  assert.deepStrictEqual(sinPatrones.options[sinPatrones.autostart[0]], { patterns: [], patternGroups: [] });
   assert.strictEqual(open({ patterns, edit: false }).editorConfig.plugins, undefined);
   assert.strictEqual(open({ patterns, fileType: "xlsx" }).editorConfig.plugins, undefined);
 });

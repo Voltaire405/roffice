@@ -34,9 +34,12 @@ function documentKey(docRef, version) {
   return crypto.createHash("sha256").update(`${docRef}\n${version}`).digest("hex");
 }
 
-/** Plugin «Insertar patrón» (plugins/patterns), solo en el editor de texto en edición y si el tenant envió patrones. */
+/**
+ * Plugin de Roffice (plugins/patterns), solo en el editor de texto en edición: ofrece «Insertar patrón»
+ * con los patrones del tenant (si los hay) y fija es-CO como idioma del texto cuando el documento no trae uno.
+ */
 function patternsPlugin({ canEdit, documentType, patterns = [], patternGroups = [], pluginsUrl }) {
-  if (!canEdit || documentType !== "word" || (patterns.length === 0 && patternGroups.length === 0)) return undefined;
+  if (!canEdit || documentType !== "word") return undefined;
   return {
     autostart: [PATTERNS_PLUGIN_GUID],
     pluginsData: [`${pluginsUrl}/patterns/config.json`],
