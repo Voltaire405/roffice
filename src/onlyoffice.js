@@ -138,7 +138,28 @@ function renderEditorPage({ config, publicUrl }) {
   <div id="editor"></div>
   <script>
     const config = ${configJson};
-    const editor = new DocsAPI.DocEditor("editor", { ...config, events: { onRequestClose: finishEditing } });
+
+    // En la primera carga sin caché el editor a veces no arranca: un módulo de OnlyOffice se ejecuta antes que su
+    // dependencia, lanza una excepción y la pantalla queda en blanco; recargar lo resuelve porque ya hay caché.
+    // Si onAppReady no llega a tiempo se recarga sola (hasta MAX_RELOADS veces) y, si no, avisa en vez de quedar en blanco.
+    const APP_READY_TIMEOUT_MS = 10000;
+    const MAX_RELOADS = 2;
+    const reloadsKey = "roffice-reloads:" + location.pathname;
+    const reloads = Number(sessionStorage.getItem(reloadsKey) || 0);
+    const appReadyTimer = setTimeout(() => {
+      if (reloads < MAX_RELOADS) {
+        sessionStorage.setItem(reloadsKey, reloads + 1);
+        location.reload();
+      } else {
+        document.body.textContent = "No se pudo cargar el editor. Recarga la página para reintentar.";
+      }
+    }, APP_READY_TIMEOUT_MS);
+    function appReady() {
+      clearTimeout(appReadyTimer);
+      sessionStorage.removeItem(reloadsKey);
+    }
+
+    const editor = new DocsAPI.DocEditor("editor", { ...config, events: { onAppReady: appReady, onRequestClose: finishEditing } });
 
     // OnlyOffice llama a onRequestClose desde su botón de cerrar tras confirmar los cambios sin guardar;
     // al destruir el editor la sesión se libera y el guardado llega ~10 s después.
