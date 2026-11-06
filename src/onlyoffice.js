@@ -3,8 +3,8 @@ const jwt = require("jsonwebtoken");
 
 const PATTERNS_PLUGIN_GUID = require("../plugins/patterns/config.json").guid;
 
-// Solo los OOXML se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
-const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx"]);
+// Solo los OOXML y el PDF se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
+const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx", "pdf"]);
 
 const FILE_TYPES = {
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
@@ -19,6 +19,7 @@ const FILE_TYPES = {
   pptx: { documentType: "slide", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
   ppt: { documentType: "slide", mime: "application/vnd.ms-powerpoint" },
   odp: { documentType: "slide", mime: "application/vnd.oasis.opendocument.presentation" },
+  pdf: { documentType: "pdf", mime: "application/pdf" },
 };
 
 function isSupportedFileType(fileType) {

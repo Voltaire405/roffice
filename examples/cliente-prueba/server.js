@@ -19,7 +19,7 @@ const S3_BUCKET = requireEnv("S3_BUCKET");
 const S3_PREFIX = process.env.S3_PREFIX || "roffice-sandbox/";
 const PRESIGN_TTL_SECONDS = 300;
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const SUPPORTED_FILE_TYPES = new Set(["docx", "doc", "odt", "rtf", "txt", "xlsx", "xls", "ods", "csv", "pptx", "ppt", "odp"]);
+const SUPPORTED_FILE_TYPES = new Set(["docx", "doc", "odt", "rtf", "txt", "xlsx", "xls", "ods", "csv", "pptx", "ppt", "odp", "pdf"]);
 
 // Roffice sube con un PUT simple: sin esto, el SDK firma checksums que ese PUT no envía.
 const s3 = new S3Client({
@@ -65,6 +65,7 @@ async function detectContainer(key) {
   const magic = Buffer.from(await Body.transformToByteArray()).toString("hex");
   if (magic === "504b0304") return "OOXML / ODF (zip)";
   if (magic === "d0cf11e0") return "Office binario (OLE)";
+  if (magic === "25504446") return "PDF";
   return "texto u otro";
 }
 

@@ -11,7 +11,7 @@ Simula una aplicación cliente para probar Roffice con un bucket de pruebas ante
 
 ## Qué puedes hacer
 
-- **Subir** un archivo (docx, xlsx, pptx, doc, xls, ppt, odt, ods, odp, rtf, txt, csv; máx. 20 MB).
+- **Subir** un archivo (docx, xlsx, pptx, doc, xls, ppt, odt, ods, odp, rtf, txt, csv, pdf; máx. 20 MB).
 - **Abrir** un documento en el editor, en una pestaña nueva. Cambia «Usuario simulado» y ábrelo en otra pestaña para probar la co-edición; desmarca «Edición» para abrirlo en solo lectura.
 - **Patrones**: el desplegable «Patrones del menú «Insertar patrón»» define en JSON los `patterns` y `patternGroups` que se envían en cada apertura (un nivel de grupo, como el contrato). El navegador recuerda lo que escribes; «Restaurar ejemplo» vuelve al ejemplo completo y un campo vacío abre sin patrones. Un JSON inválido no abre el editor, y una forma inválida llega como `Roffice: patterns…`.
 - **Guardar**: botón Guardar del editor, o cerrar la pestaña (se guarda ~10 s después). Cada guardado aparece en «Guardados solicitados por Roffice».

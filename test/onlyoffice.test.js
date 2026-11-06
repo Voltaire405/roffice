@@ -23,11 +23,11 @@ test("verifyCallback acepta solo callbacks firmados con el secreto de OnlyOffice
   assert.throws(() => verifyCallback(body, undefined, "secreto"));
 });
 
-test("solo docx, xlsx y pptx se abren en edición aunque el tenant pida editar", () => {
+test("solo docx, xlsx, pptx y pdf se abren en edición aunque el tenant pida editar", () => {
   const open = (fileType) =>
     buildEditorConfig({ key: "k", title: "t", fileType, fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit: true }, secret: "s" });
 
-  for (const fileType of ["docx", "xlsx", "pptx"]) assert.strictEqual(open(fileType).editorConfig.mode, "edit");
+  for (const fileType of ["docx", "xlsx", "pptx", "pdf"]) assert.strictEqual(open(fileType).editorConfig.mode, "edit");
   for (const fileType of ["doc", "xls", "ppt", "odt", "csv"]) {
     const config = open(fileType);
     assert.strictEqual(config.editorConfig.mode, "view");

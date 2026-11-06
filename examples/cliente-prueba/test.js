@@ -45,5 +45,6 @@ test("saveUrl entrega PUTs solo a Roffice y solo dentro del prefijo sandbox", as
   assert.ok(Number(putUrl.searchParams.get("X-Amz-Expires")) <= 300);
 
   assert.strictEqual(sandboxKey("a/b.docx"), null);
-  assert.strictEqual(sandboxKey("x.pdf"), null);
+  assert.strictEqual(sandboxKey("x.pdf"), "roffice-sandbox/x.pdf");
+  assert.strictEqual(sandboxKey("x.exe"), null);
 });
