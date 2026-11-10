@@ -119,7 +119,8 @@ app.post("/api/documents/:name/editor", express.json(), async (req, res) => {
         title: req.params.name,
         getUrl,
         user: { id: `prueba-${userName.toLowerCase().replace(/\W+/g, "-")}`, name: userName },
-        permissions: { edit: req.body.edit !== false },
+        // `review` se omite fuera del modo Revisión: enviarlo en false quitaría el control de cambios de la Edición.
+        permissions: { edit: req.body.mode === "edit", review: req.body.mode === "review" || undefined },
         returnUrl: PUBLIC_URL,
         // Los patrones de la UI viajan tal cual: Roffice valida su forma y responde 400 si no la cumple.
         patterns: req.body.patterns,

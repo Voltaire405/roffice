@@ -17,7 +17,13 @@
   <p class="muted">Simula un tenant: lista el prefijo sandbox, abre el editor en una pestaña y registra cada guardado que Roffice solicita.</p>
 
   <label>Usuario simulado <input id="userName" value="Ana Prueba"></label>
-  <label><input id="edit" type="checkbox" checked> Edición</label>
+  <label>Modo
+    <select id="mode">
+      <option value="edit">Edición</option>
+      <option value="review">Revisión (solo docx)</option>
+      <option value="view">Visualización</option>
+    </select>
+  </label>
   <p id="error"></p>
 
   <details>
@@ -111,7 +117,7 @@
         const res = await fetch(`/api/documents/${encodeURIComponent(name)}/editor`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userName: $("userName").value, edit: $("edit").checked, ...patterns }),
+          body: JSON.stringify({ userName: $("userName").value, mode: $("mode").value, ...patterns }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);
