@@ -35,6 +35,29 @@ test("solo docx, xlsx, pptx y pdf se abren en edición aunque el tenant pida edi
   }
 });
 
+test("review sin edit abre el docx en modo Revisión; edit y solo lectura siguen igual", () => {
+  const open = (permissions, fileType = "docx") =>
+    buildEditorConfig({ key: "k", title: "t", fileType, fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions, pluginsUrl: "https://roffice/plugins", secret: "s" });
+
+  const revision = open({ review: true });
+  assert.strictEqual(revision.editorConfig.mode, "edit");
+  assert.deepStrictEqual(
+    [revision.document.permissions.edit, revision.document.permissions.review, revision.document.permissions.comment],
+    [false, true, true]
+  );
+  assert.strictEqual(revision.editorConfig.plugins, undefined);
+  assert.strictEqual(open({ review: true, comment: false }).document.permissions.comment, false);
+
+  const edicion = open({ edit: true });
+  assert.strictEqual(edicion.editorConfig.mode, "edit");
+  assert.deepStrictEqual([edicion.document.permissions.edit, edicion.document.permissions.review], [true, true]);
+  assert.strictEqual(open({ edit: true, review: false }).document.permissions.review, false);
+  assert.strictEqual(open({}).editorConfig.mode, "view");
+  assert.strictEqual(open({ review: false }).editorConfig.mode, "view");
+
+  for (const fileType of ["xlsx", "pptx", "pdf", "doc", "odt"]) assert.strictEqual(open({ review: true }, fileType).editorConfig.mode, "view");
+});
+
 test("renderEditorPage no permite que datos del cliente inyecten HTML", () => {
   const title = `</script><script>alert(1)</script>`;
   const config = { document: { title }, editorConfig: { user: { name: title } } };

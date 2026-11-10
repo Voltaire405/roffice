@@ -76,6 +76,7 @@ async openEditor(docId: string) {
 }
 ```
 
+- `permissions` define el modo de apertura: `edit: true` → Edición; sin `edit` y `review: true` (solo `docx`) → Revisión (solo sugerir cambios); el resto → Visualización.
 - `returnUrl` (opcional): destino del botón «volver» del editor (`customization.goback`).
 - `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición, con o sin patrones. Ese mismo plugin fija `es-CO` como idioma del texto por defecto (`editorConfig.lang` solo traduce la interfaz y el idioma del texto vive en el documento).
 

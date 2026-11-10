@@ -6,6 +6,9 @@ const PATTERNS_PLUGIN_GUID = require("../plugins/patterns/config.json").guid;
 // Solo los OOXML y el PDF se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
 const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx", "pdf"]);
 
+// Control de cambios: solo el editor de texto tiene modo «Revisión», y solo en un formato que se guarda tal cual.
+const REVIEWABLE_FILE_TYPES = new Set(["docx"]);
+
 const FILE_TYPES = {
   docx: { documentType: "word", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
   doc: { documentType: "word", mime: "application/msword" },
@@ -50,6 +53,8 @@ function patternsPlugin({ canEdit, documentType, patterns = [], patternGroups = 
 
 function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, patterns, patternGroups, pluginsUrl, secret }) {
   const canEdit = permissions.edit === true && EDITABLE_FILE_TYPES.has(fileType);
+  // Sin `edit`, `review: true` abre en modo Revisión (solo sugerir cambios): OnlyOffice lo exige en mode "edit" con edit:false.
+  const reviewOnly = !canEdit && permissions.review === true && REVIEWABLE_FILE_TYPES.has(fileType);
   const { documentType } = FILE_TYPES[fileType];
   const plugins = patternsPlugin({ canEdit, documentType, patterns, patternGroups, pluginsUrl });
   const config = {
@@ -62,7 +67,7 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
       url: fileUrl,
       permissions: {
         edit: canEdit,
-        comment: permissions.comment ?? canEdit,
+        comment: permissions.comment ?? (canEdit || reviewOnly),
         review: permissions.review ?? canEdit,
         download: permissions.download ?? true,
         print: permissions.print ?? true,
@@ -71,7 +76,7 @@ function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, p
       },
     },
     editorConfig: {
-      mode: canEdit ? "edit" : "view",
+      mode: canEdit || reviewOnly ? "edit" : "view",
       callbackUrl,
       lang: "es",
       user: { id: user.id, name: user.name },
