@@ -28,7 +28,7 @@
 
   <details>
     <summary>Patrones del menú «Insertar patrón» (solo docx en edición)</summary>
-    <p class="muted"><code>patterns</code>: string[]. <code>patternGroups</code>: <code>[{ label, children: [{ label, pattern }] }]</code>, un nivel de grupo. Se envían tal cual en cada apertura; vacía el campo para no enviar patrones.</p>
+    <p class="muted"><code>patterns</code>: string[]. <code>patternGroups</code>: árbol de hojas <code>{ label, pattern }</code> y grupos <code>{ label, children }</code>, hasta 4 niveles. Se envían tal cual en cada apertura; vacía el campo para no enviar patrones.</p>
     <textarea id="patterns" rows="16" spellcheck="false"></textarea>
     <button id="resetPatterns">Restaurar ejemplo</button>
   </details>
@@ -61,6 +61,25 @@
             { label: "WhatsApp", pattern: "destinatario.whatsapp" },
             { label: "Dirección", pattern: "destinatario.direccion" },
             { label: "Correo trabajo", pattern: "destinatario.propiedades.correotrabajo" },
+          ],
+        },
+        {
+          label: "Revisores",
+          children: [
+            {
+              label: "Revisor 1",
+              children: [
+                { label: "Nombre", pattern: "revisores[0].nombre" },
+                { label: "Cargo", pattern: "revisores[0].cargo" },
+                {
+                  label: "Secciones",
+                  children: [
+                    { label: "Contratos", pattern: "revisores[0].secciones[0]" },
+                    { label: "Jurídica (primaria)", pattern: "revisores[0].secciones[1]" },
+                  ],
+                },
+              ],
+            },
           ],
         },
       ],

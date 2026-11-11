@@ -78,7 +78,7 @@ async openEditor(docId: string) {
 
 - `permissions` define el modo de apertura: `edit: true` → Edición; sin `edit` y `review: true` (solo `docx`) → Revisión (solo sugerir cambios); el resto → Visualización.
 - `returnUrl` (opcional): destino del botón «volver» del editor (`customization.goback`).
-- `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición, con o sin patrones. Ese mismo plugin fija `es-CO` como idioma del texto por defecto (`editorConfig.lang` solo traduce la interfaz y el idioma del texto vive en el documento).
+- `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición, con o sin patrones. `patternGroups` es un árbol: cada nodo es una hoja `{ label, pattern }`, que inserta `${pattern}` tal cual, o un grupo `{ label, children }`, que abre un submenú; nunca ambos. Admite hasta 4 niveles y 500 nodos en total; si los supera, Roffice responde 400. Ese mismo plugin fija `es-CO` como idioma del texto por defecto (`editorConfig.lang` solo traduce la interfaz y el idioma del texto vive en el documento).
 
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.

@@ -9,15 +9,17 @@
   function buildPatternMenu({ patterns = [], patternGroups = [] } = {}) {
     const patternById = {};
     const item = (id, text, pattern) => ((patternById[id] = pattern), { id, text });
+    const toItem = (node, id) => {
+      if (!node.label) return null;
+      if (node.children === undefined) return item(id, node.label, node.pattern);
+      const children = node.children.map((child, c) => toItem(child, `${id}_${c}`)).filter(Boolean);
+      return children.length ? { id, text: node.label, items: children } : null;
+    };
 
     const items = patterns.map((pattern, i) => item(`insert_pattern_static_${i}`, pattern, pattern));
-    patternGroups.forEach((group, g) => {
-      if (!group.label || !group.children?.length) return;
-      items.push({
-        id: `insert_pattern_group_${g}`,
-        text: group.label,
-        items: group.children.map((child, c) => item(`insert_pattern_group_${g}_${c}`, child.label, child.pattern)),
-      });
+    patternGroups.forEach((node, g) => {
+      const menuItem = toItem(node, `insert_pattern_group_${g}`);
+      if (menuItem) items.push(menuItem);
     });
     return { items, patternById };
   }

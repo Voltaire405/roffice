@@ -27,8 +27,10 @@ class SessionError extends Error {
  * @property {string} [returnUrl]
  * @property {Object} [permissions]
  * @property {string[]} [patterns]
- * @property {{ label: string, children: { label: string, pattern: string }[] }[]} [patternGroups]
+ * @property {PatternNode[]} [patternGroups]
  */
+
+/** @typedef {{ label: string, pattern: string } | { label: string, children: PatternNode[] }} PatternNode */
 
 /**
  * @typedef {Object} SessionRecord - `key:<documentKey>`, una por sesión de OnlyOffice
@@ -48,14 +50,22 @@ function isHttpUrl(value) {
 }
 
 const isStringList = (value) => Array.isArray(value) && value.every((item) => typeof item === "string");
-const isPatternGroupList = (value) =>
-  Array.isArray(value) &&
-  value.every(
-    (group) =>
-      typeof group?.label === "string" &&
-      Array.isArray(group.children) &&
-      group.children.every((child) => typeof child?.label === "string" && typeof child?.pattern === "string")
-  );
+
+const MAX_PATTERN_DEPTH = 4;
+const MAX_PATTERN_NODES = 500;
+
+function isPatternTree(nodes) {
+  let count = 0;
+  const isValidList = (list, depth) =>
+    Array.isArray(list) &&
+    list.every((node) => {
+      count += 1;
+      if (count > MAX_PATTERN_NODES || depth > MAX_PATTERN_DEPTH || typeof node?.label !== "string") return false;
+      if (node.children === undefined) return typeof node.pattern === "string";
+      return node.pattern === undefined && isValidList(node.children, depth + 1);
+    });
+  return isValidList(nodes, 1);
+}
 
 function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl, patterns, patternGroups }) {
   if (typeof docId !== "string" || !docId) return "docId requerido";
@@ -65,7 +75,9 @@ function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl
   if (typeof user?.id !== "string" || typeof user?.name !== "string") return "user.id y user.name requeridos";
   if (returnUrl !== undefined && !isHttpUrl(returnUrl)) return "returnUrl debe ser una URL http(s)";
   if (patterns !== undefined && !isStringList(patterns)) return "patterns debe ser una lista de strings";
-  if (patternGroups !== undefined && !isPatternGroupList(patternGroups)) return "patternGroups debe ser una lista de { label, children: [{ label, pattern }] }";
+  if (patternGroups !== undefined && !isPatternTree(patternGroups)) {
+    return `patternGroups debe ser un árbol de { label, pattern } o { label, children } de hasta ${MAX_PATTERN_DEPTH} niveles y ${MAX_PATTERN_NODES} nodos`;
+  }
   return null;
 }
 

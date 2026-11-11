@@ -48,6 +48,20 @@ test("open rechaza pedidos inválidos con invalid_request", async (t) => {
   await rejectsWith(sessions.open(TENANT, { ...request("a.docx"), patternGroups: [{ label: "g", children: [{ label: "x" }] }] }), "invalid_request");
 });
 
+test("open acepta patternGroups anidados hasta 4 niveles y 500 nodos", async (t) => {
+  const { sessions } = await setup(t);
+  const nest = (depth) => (depth === 1 ? { label: "hoja", pattern: "p" } : { label: `n${depth}`, children: [nest(depth - 1)] });
+  const leaves = (count) => Array.from({ length: count }, () => ({ label: "x", pattern: "x" }));
+  const openWith = (patternGroups) => sessions.open(TENANT, { ...request("a.docx"), patternGroups });
+
+  await openWith([nest(4)]);
+  await openWith(leaves(500));
+  await rejectsWith(openWith([nest(5)]), "invalid_request");
+  await rejectsWith(openWith(leaves(501)), "invalid_request");
+  await rejectsWith(openWith([{ label: "ambos", pattern: "p", children: [] }]), "invalid_request");
+  await rejectsWith(openWith([{ label: "ninguno" }]), "invalid_request");
+});
+
 test("el enlace de un solo uso abre la pestaña con el config del editor", async (t) => {
   const { sessions } = await setup(t);
   const { launchToken } = await sessions.open(TENANT, request("a.docx"));
