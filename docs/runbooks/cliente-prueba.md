@@ -1,6 +1,6 @@
 # Runbook: tenant de prueba
 
-`examples/cliente-prueba/` es un tenant de referencia que implementa la integración de un tenant contra un prefijo sandbox del Object Storage. Sirve para validar Roffice de punta a punta antes de integrar un tenant real. Escucha solo en `127.0.0.1:13100` y toca únicamente objetos bajo `S3_PREFIX`.
+`examples/cliente-prueba/` es un tenant de referencia que implementa el contrato HTTP del `README.md` contra un prefijo sandbox del Object Storage. Sirve para validar Roffice de punta a punta antes de integrar un tenant real. Escucha solo en `127.0.0.1:13100` y toca únicamente objetos bajo `S3_PREFIX`.
 
 Requiere `entorno-local.md` hecho.
 
