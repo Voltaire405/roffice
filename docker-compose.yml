@@ -1,3 +1,11 @@
+# Versión fija: plugins/plugins.js es copia del SDK de esta versión y los plugins usan APIs de ventana sin documentar
+# (resizeWindow, acoplar). El digest impide que un re-push del tag cambie la imagen. Para actualizar: APRENDIZAJES.md §12.
+x-onlyoffice-image: &onlyoffice-image onlyoffice/documentserver:10.0.0.1@sha256:ca17889f10b11141cc6441836aebdd2835cf3e1b49681b2fd6e155c94b7850b3
+
+# La imagen no trae plugins: al arrancar los descarga del marketplace según esta lista. Quitar uno de la lista solo
+# surte efecto al recrear el contenedor (docker compose up -d --force-recreate); un reinicio conserva los instalados.
+x-onlyoffice-plugin-list: &onlyoffice-plugin-list ./onlyoffice/plugin-list-default.json:/var/www/onlyoffice/documentserver/sdkjs-plugins/plugin-list-default.json:ro
+
 services:
   redis:
     image: redis:7-alpine
@@ -10,7 +18,7 @@ services:
     restart: unless-stopped
 
   onlyoffice-1:
-    image: onlyoffice/documentserver:latest
+    image: *onlyoffice-image
     container_name: onlyoffice-ds-1
     ports:
       - "18080:80"
@@ -24,10 +32,11 @@ services:
     volumes:
       - onlyoffice_data_1:/var/www/onlyoffice/Data
       - onlyoffice_logs_1:/var/log/onlyoffice
+      - *onlyoffice-plugin-list
     restart: unless-stopped
 
   onlyoffice-2:
-    image: onlyoffice/documentserver:latest
+    image: *onlyoffice-image
     container_name: onlyoffice-ds-2
     ports:
       - "18081:80"
@@ -41,10 +50,11 @@ services:
     volumes:
       - onlyoffice_data_2:/var/www/onlyoffice/Data
       - onlyoffice_logs_2:/var/log/onlyoffice
+      - *onlyoffice-plugin-list
     restart: unless-stopped
 
   onlyoffice-3:
-    image: onlyoffice/documentserver:latest
+    image: *onlyoffice-image
     container_name: onlyoffice-ds-3
     ports:
       - "18082:80"
@@ -58,6 +68,7 @@ services:
     volumes:
       - onlyoffice_data_3:/var/www/onlyoffice/Data
       - onlyoffice_logs_3:/var/log/onlyoffice
+      - *onlyoffice-plugin-list
     restart: unless-stopped
 
 volumes:

@@ -137,7 +137,12 @@ app.post("/api/upload", upload.single("file"), async (req, res) => {
 `plugins/patterns/` se carga con `editorConfig.plugins.pluginsData` desde `PUBLIC_URL/plugins`, no desde la instancia:
 
 - El editor descarga el `config.json` con `fetch` desde el origen de la instancia: `/plugins` responde `Access-Control-Allow-Origin: *`.
-- `plugins.js` es una copia de `sdkjs-plugins/v1/plugins.js` del contenedor. Al actualizar la imagen de OnlyOffice (`documentserver:latest`), vuelve a copiarlo (`docker cp onlyoffice-ds-1:/var/www/onlyoffice/documentserver/sdkjs-plugins/v1/plugins.js plugins/patterns/`) y repite la prueba del menú.
+- `plugins/plugins.js`, compartido por los plugins de Roffice, es una copia de `sdkjs-plugins/v1/plugins.js` del contenedor. Por eso la imagen de OnlyOffice está fijada por tag y digest en `docker-compose.yml` (`x-onlyoffice-image`). Para actualizarla:
+  1. Cambia tag y digest en `x-onlyoffice-image` (el digest del tag sale de `https://hub.docker.com/v2/repositories/onlyoffice/documentserver/tags/<tag>`) y ejecuta `docker compose up -d`.
+  2. Copia el SDK nuevo: `docker cp onlyoffice-ds-1:/var/www/onlyoffice/documentserver/sdkjs-plugins/v1/plugins.js plugins/`.
+  3. Repite con el tenant de prueba el menú «Insertar patrón» y los documentos relacionados: ventana, redimensionado (`resizeWindow`) y acoplado, que son APIs sin documentar.
+- La imagen no trae los plugins de «Extensiones»: al arrancar, `documentserver-pluginsmanager` los descarga del marketplace (`onlyoffice.github.io`) según `sdkjs-plugins/plugin-list-default.json`. El compose monta `onlyoffice/plugin-list-default.json` en su lugar para decidir cuáles se instalan. Consecuencias: el arranque necesita salida a internet, las versiones de esos plugins no quedan fijadas con la imagen, y quitar uno de la lista exige recrear el contenedor.
+- `documentserver-pluginsmanager`, incluso con `--help`, reinicia `ds:docservice` y vacía la caché al terminar, salvo con `-r false`.
 - `AddContextMenuItem` exige `guid` del plugin en el objeto; sin él, el SDK lanza `Cannot read properties of undefined` y el editor muestra un diálogo de error del documento.
 - El SDK define su propio `event_onContextMenuClick` y pisa `attachEvent("onContextMenuClick")`: el clic se registra por id con `attachContextMenuClickEvent`.
 - Los patrones llegan en `Asc.plugin.info.options` (las `options[guid]` del config). El `text` de los ítems se muestra literal: OnlyOffice escapa el HTML.
