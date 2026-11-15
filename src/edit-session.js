@@ -285,7 +285,10 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
         await saveToTenant(session, url);
         logger.info("Callback", "Documento guardado en el storage del cliente", { tenant: session.tenant, docId: session.docId, status });
       }
-      if (status === 2 || status === 4) await closeSession(key, session);
+      if (status === 2) await closeSession(key, session);
+      // El 4 no es definitivo: un editor que estuvo desconectado (pestaña suspendida, o la misma pestaña reabriendo el
+      // documento) se reconecta con la misma key y luego envía su 2. Borrar la sesión aquí descartaría ese guardado.
+      if (status === 4) await pool.release(docRefOf(session.tenant, session.docId));
     } catch (err) {
       logger.error("Callback", "Error guardando en el storage del cliente", { tenant: session.tenant, docId: session.docId, error: err.message });
       throw new SessionError("save_failed", err.message);

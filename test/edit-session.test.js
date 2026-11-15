@@ -116,6 +116,19 @@ test("quien se une recibe la misma key y la key rota al cerrar la sesión", asyn
   assert.notStrictEqual(reopened.config.document.key, key);
 });
 
+test("un editor que se reconecta tras el status 4 guarda sus cambios", async (t) => {
+  const { sessions, saves } = await setup(t);
+  const { config } = await openTab(sessions, request("a.xlsx"));
+  const key = config.document.key;
+
+  await sessions.handleCallback({ status: 1, key, users: ["u1"] });
+  await sessions.handleCallback({ status: 4, key });
+  await sessions.handleCallback({ status: 1, key, users: ["u1"] });
+  await sessions.handleCallback({ status: 2, key, url: "http://oo/final" });
+
+  assert.deepStrictEqual(saves, [{ docId: "a.xlsx", url: "http://oo/final" }]);
+});
+
 test("un guardado fallido lanza save_failed y conserva la sesión", async (t) => {
   const { sessions, failSaves } = await setup(t);
   const { config } = await openTab(sessions, request("a.docx"));
