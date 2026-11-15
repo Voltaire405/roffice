@@ -33,6 +33,12 @@
     <button id="resetPatterns">Restaurar ejemplo</button>
   </details>
 
+  <details>
+    <summary>Documentos relacionados (PDF, cualquier modo)</summary>
+    <p class="muted">Una línea por documento: <code>Nombre - URL</code>. Roffice descarga la URL desde el servidor, no desde tu navegador: debe responder sin cookies y seguir viva mientras el editor esté abierto. Vacío = sin documentos relacionados. En el editor se abren desde la pestaña «Extensiones».</p>
+    <textarea id="relatedDocuments" rows="5" spellcheck="false" placeholder="Ley 1437 de 2011 - https://ejemplo.org/ley-1437.pdf"></textarea>
+  </details>
+
   <h2>Documentos</h2>
   <input id="file" type="file" accept=".docx,.doc,.odt,.rtf,.txt,.xlsx,.xls,.ods,.csv,.pptx,.ppt,.odp,.pdf">
   <button id="refresh">Actualizar</button>
@@ -107,6 +113,23 @@
       }
     }
 
+    const RELATED_STORAGE_KEY = "roffice-prueba-related-documents";
+    try { $("relatedDocuments").value = localStorage.getItem(RELATED_STORAGE_KEY) ?? ""; } catch {}
+    $("relatedDocuments").oninput = () => { try { localStorage.setItem(RELATED_STORAGE_KEY, $("relatedDocuments").value); } catch {} };
+
+    /** `relatedDocuments` del textarea; el último « - » separa el nombre de la URL, porque el nombre puede llevar guiones. */
+    function readRelatedDocuments() {
+      const lines = $("relatedDocuments").value.split("\n").map((line) => line.trim()).filter(Boolean);
+      if (!lines.length) return {};
+      return {
+        relatedDocuments: lines.map((line) => {
+          const separator = line.lastIndexOf(" - ");
+          if (separator < 0) throw new Error(`Documentos relacionados: falta « - » entre nombre y URL en «${line}»`);
+          return { title: line.slice(0, separator).trim(), url: line.slice(separator + 3).trim() };
+        }),
+      };
+    }
+
     async function loadDocuments() {
       const res = await fetch("/api/documents");
       const docs = await res.json();
@@ -133,10 +156,11 @@
       const isNewTab = isBlank(tab);
       try {
         const patterns = readPatterns();
+        const relatedDocuments = readRelatedDocuments();
         const res = await fetch(`/api/documents/${encodeURIComponent(name)}/editor`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ userName: $("userName").value, mode: $("mode").value, ...patterns }),
+          body: JSON.stringify({ userName: $("userName").value, mode: $("mode").value, ...patterns, ...relatedDocuments }),
         });
         const body = await res.json();
         if (!res.ok) throw new Error(body.error);

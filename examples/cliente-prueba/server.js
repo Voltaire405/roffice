@@ -122,9 +122,10 @@ app.post("/api/documents/:name/editor", express.json(), async (req, res) => {
         // `review` se omite fuera del modo Revisión: enviarlo en false quitaría el control de cambios de la Edición.
         permissions: { edit: req.body.mode === "edit", review: req.body.mode === "review" || undefined },
         returnUrl: PUBLIC_URL,
-        // Los patrones de la UI viajan tal cual: Roffice valida su forma y responde 400 si no la cumple.
+        // Patrones y documentos relacionados de la UI viajan tal cual: Roffice valida su forma y responde 400 si no la cumple.
         patterns: req.body.patterns,
         patternGroups: req.body.patternGroups,
+        relatedDocuments: req.body.relatedDocuments,
       }),
     });
     const body = await session.json();
