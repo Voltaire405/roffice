@@ -44,6 +44,7 @@ const sessions = createEditSessions({
   // URL de Roffice vista por los contenedores de OnlyOffice.
   backendUrl: process.env.BACKEND_URL || "http://host.docker.internal:13000",
   pluginsUrl: `${PUBLIC_URL}/plugins`,
+  relatedUrl: `${PUBLIC_URL}/related`,
   maxDocsPerUser: Math.max(1, Number(process.env.MAX_DOCS_PER_USER) || 1),
 });
 

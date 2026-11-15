@@ -28,7 +28,10 @@ class SessionError extends Error {
  * @property {Object} [permissions]
  * @property {string[]} [patterns]
  * @property {PatternNode[]} [patternGroups]
+ * @property {RelatedDocument[]} [relatedDocuments]
  */
+
+/** @typedef {{ title: string, url: string }} RelatedDocument - PDF que el usuario consulta mientras redacta */
 
 /** @typedef {{ label: string, pattern: string } | { label: string, children: PatternNode[] }} PatternNode */
 
@@ -67,7 +70,17 @@ function isPatternTree(nodes) {
   return isValidList(nodes, 1);
 }
 
-function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl, patterns, patternGroups }) {
+const MAX_RELATED_DOCUMENTS = 50;
+const MAX_RELATED_TITLE_LENGTH = 200;
+
+const isRelatedDocumentList = (documents) =>
+  Array.isArray(documents) &&
+  documents.length <= MAX_RELATED_DOCUMENTS &&
+  documents.every(
+    (doc) => typeof doc?.title === "string" && doc.title && doc.title.length <= MAX_RELATED_TITLE_LENGTH && isHttpUrl(doc.url)
+  );
+
+function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl, patterns, patternGroups, relatedDocuments }) {
   if (typeof docId !== "string" || !docId) return "docId requerido";
   if (typeof version !== "string" || !version) return "version requerida";
   if (!isSupportedFileType(fileType)) return "fileType no soportado";
@@ -77,6 +90,9 @@ function validateOpenRequest({ docId, version, fileType, getUrl, user, returnUrl
   if (patterns !== undefined && !isStringList(patterns)) return "patterns debe ser una lista de strings";
   if (patternGroups !== undefined && !isPatternTree(patternGroups)) {
     return `patternGroups debe ser un árbol de { label, pattern } o { label, children } de hasta ${MAX_PATTERN_DEPTH} niveles y ${MAX_PATTERN_NODES} nodos`;
+  }
+  if (relatedDocuments !== undefined && !isRelatedDocumentList(relatedDocuments)) {
+    return `relatedDocuments debe ser una lista de hasta ${MAX_RELATED_DOCUMENTS} { title, url } con title de hasta ${MAX_RELATED_TITLE_LENGTH} caracteres y url http(s)`;
   }
   return null;
 }
@@ -99,7 +115,7 @@ const docRefOf = (tenant, docId) => `${tenant}:${docId}`;
 /**
  * Ciclo de la sesión de edición: abrir (o unirse), canjear el enlace de un solo uso por la pestaña,
  * servir el documento a OnlyOffice, procesar sus callbacks y forzar guardados.
- * Es dueña de las claves Redis key:, file:, tab:, launch: y user:; `doc:` es del pool.
+ * Es dueña de las claves Redis key:, file:, related:, tab:, launch: y user:; `doc:` es del pool.
  * @param {Object} deps
  * @param {import("ioredis").Redis} deps.redis
  * @param {ReturnType<typeof import("./pool").createPool>} deps.pool
@@ -108,9 +124,10 @@ const docRefOf = (tenant, docId) => `${tenant}:${docId}`;
  * @param {string} deps.jwtSecret - secreto compartido con OnlyOffice
  * @param {string} deps.backendUrl - URL de Roffice vista por los contenedores de OnlyOffice
  * @param {string} deps.pluginsUrl - URL de los plugins de Roffice vista por el navegador
+ * @param {string} deps.relatedUrl - URL de los documentos relacionados de Roffice vista por el navegador
  * @param {number} deps.maxDocsPerUser - documentos abiertos a la vez por usuario; abrir otro desconecta del más antiguo
  */
-function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret, backendUrl, pluginsUrl, maxDocsPerUser }) {
+function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret, backendUrl, pluginsUrl, relatedUrl, maxDocsPerUser }) {
   const setJson = (key, value, ttl = SESSION_TTL_SECONDS) => redis.set(key, JSON.stringify(value), "EX", ttl);
   const getJson = async (key) => {
     const value = await redis.get(key);
@@ -160,7 +177,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
     const problem = validateOpenRequest(request);
     if (problem) throw new SessionError("invalid_request", problem);
 
-    const { docId, version, fileType, getUrl, user, returnUrl, permissions = {}, patterns, patternGroups } = request;
+    const { docId, version, fileType, getUrl, user, returnUrl, permissions = {}, patterns, patternGroups, relatedDocuments = [] } = request;
     const docRef = docRefOf(tenant, docId);
 
     try {
@@ -177,6 +194,15 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
       // Cada apertura renueva la getUrl: la del primer editor pudo expirar si OnlyOffice aún no la descargó.
       await redis.set(`file:${session.fileToken}`, getUrl, "EX", SESSION_TTL_SECONDS);
 
+      // Token opaco y no cookie: el plugin carga el PDF en un iframe dentro del de OnlyOffice, donde la cookie de la
+      // pestaña no llega si OnlyOffice está en otro sitio.
+      const relatedLinks = [];
+      for (const { title, url } of relatedDocuments) {
+        const token = crypto.randomBytes(32).toString("base64url");
+        await redis.set(`related:${token}`, url, "EX", SESSION_TTL_SECONDS);
+        relatedLinks.push({ title, url: `${relatedUrl}/${token}` });
+      }
+
       const config = buildEditorConfig({
         key,
         title: request.title || `${docId}.${fileType}`,
@@ -188,6 +214,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
         returnUrl,
         patterns,
         patternGroups,
+        relatedDocuments: relatedLinks,
         pluginsUrl,
         secret: jwtSecret,
       });
@@ -224,6 +251,13 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
       throw new SessionError("tab_forbidden", "Esta pestaña no tiene acceso al documento. Vuelve a abrirlo desde la aplicación.");
     }
     return { config: tab.config, publicUrl: tab.publicUrl };
+  }
+
+  /** @returns {Promise<string>} URL del tenant del documento relacionado para el token opaco que el plugin recibió */
+  async function relatedDocumentSource(token) {
+    const url = await redis.get(`related:${token}`);
+    if (!url) throw new SessionError("file_not_found", "Documento relacionado no encontrado o expirado");
+    return url;
   }
 
   /** @returns {Promise<string>} getUrl del tenant para el token opaco que OnlyOffice recibió en el config */
@@ -271,7 +305,7 @@ function createEditSessions({ redis, pool, sendCommand, saveToTenant, jwtSecret,
     }
   }
 
-  return { open, redeemLaunch, getTab, fileSource, handleCallback, forcesave };
+  return { open, redeemLaunch, getTab, relatedDocumentSource, fileSource, handleCallback, forcesave };
 }
 
 module.exports = { createEditSessions, SessionError };

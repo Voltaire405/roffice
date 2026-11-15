@@ -79,6 +79,7 @@ async openEditor(docId: string) {
 - `permissions` define el modo de apertura: `edit: true` → Edición; sin `edit` y `review: true` (solo `docx`) → Revisión (solo sugerir cambios); el resto → Visualización.
 - `returnUrl` (opcional): destino del botón «volver» del editor (`customization.goback`).
 - `patterns` / `patternGroups` (opcionales): menú contextual «Insertar patrón» del editor de texto. Roffice sirve el plugin `plugins/patterns/` en `PUBLIC_URL/plugins` y le pasa los patrones en `editorConfig.plugins.options`; solo se carga en `docx` en edición, con o sin patrones. `patternGroups` es un árbol: cada nodo es una hoja `{ label, pattern }`, que inserta `${pattern}` tal cual, o un grupo `{ label, children }`, que abre un submenú; nunca ambos. Admite hasta 4 niveles y 500 nodos en total; si los supera, Roffice responde 400. Ese mismo plugin fija `es-CO` como idioma del texto por defecto (`editorConfig.lang` solo traduce la interfaz y el idioma del texto vive en el documento).
+- `relatedDocuments` (opcional): hasta 50 `{ title, url }`, PDF que el usuario consulta para elaborar el documento, en cualquier editor y modo de apertura. Roffice carga el plugin `plugins/related-documents/` y el usuario lo abre desde la pestaña «Extensiones». Abre una ventana no modal que se arrastra, se redimensiona y se puede acoplar al panel lateral; acoplada tiene ancho fijo. Un desplegable elige el documento y lo muestra con el visor PDF del navegador. El plugin no recibe la `url`, sino `PUBLIC_URL/related/<token>`; ahí Roffice la descarga y responde 415 si no empieza por `%PDF-`, sea cual sea su `Content-Type`. Roffice la lee cada vez que el usuario elige el documento, así que debe seguir válida mientras dure la pestaña (hasta 24 h); un prefirmado de minutos dará 502.
 
 - `getUrl`: GET prefirmado. Roffice lo sirve a OnlyOffice vía `/files/:fileToken`; nunca llega al navegador.
 - `version`: cambia cuando el objeto cambia. Mientras haya una sesión abierta, quien se une recibe la misma `key` aunque la versión haya avanzado por un forcesave.
@@ -129,6 +130,7 @@ Después de `add-tenant`, reiniciar Roffice. El cliente publica la `saveUrl` **e
 │   └── logger.js        # Logger estructurado + middleware de request
 ├── test/                # node --test; los de sesión y HTTP usan Redis real (DB 15, se vacía)
 ├── scripts/keycloak.js  # Realm, client roffice y alta de tenants
+├── plugins/             # Plugins de OnlyOffice servidos en PUBLIC_URL/plugins: patterns, related-documents
 ├── examples/            # Tenant de prueba (docs/runbooks/cliente-prueba.md)
 ├── docker-compose.yml   # Redis + 3 instancias OnlyOffice Document Server
 └── Dockerfile           # Imagen del backend

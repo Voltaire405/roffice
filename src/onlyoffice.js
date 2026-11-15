@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 
 const PATTERNS_PLUGIN_GUID = require("../plugins/patterns/config.json").guid;
+const RELATED_DOCUMENTS_PLUGIN_GUID = require("../plugins/related-documents/config.json").guid;
 
 // Solo los OOXML y el PDF se guardan en su formato: OnlyOffice devuelve el resto convertido a OOXML con la extensión original.
 const EDITABLE_FILE_TYPES = new Set(["docx", "xlsx", "pptx", "pdf"]);
@@ -39,24 +40,32 @@ function documentKey(docRef, version) {
 }
 
 /**
- * Plugin de Roffice (plugins/patterns), solo en el editor de texto en edición: ofrece «Insertar patrón»
- * con los patrones del tenant (si los hay) y fija es-CO como idioma del texto cuando el documento no trae uno.
+ * Plugins de Roffice (plugins/):
+ * - patterns, solo en el editor de texto en edición: ofrece «Insertar patrón» con los patrones del tenant (si los hay)
+ *   y fija es-CO como idioma del texto cuando el documento no trae uno.
+ * - related-documents, en cualquier editor y modo cuando el tenant envía documentos relacionados: el usuario lo abre
+ *   desde la pestaña Extensiones, no arranca solo.
  */
-function patternsPlugin({ canEdit, documentType, patterns = [], patternGroups = [], pluginsUrl }) {
-  if (!canEdit || documentType !== "word") return undefined;
-  return {
-    autostart: [PATTERNS_PLUGIN_GUID],
-    pluginsData: [`${pluginsUrl}/patterns/config.json`],
-    options: { [PATTERNS_PLUGIN_GUID]: { patterns, patternGroups } },
-  };
+function editorPlugins({ canEdit, documentType, patterns = [], patternGroups = [], relatedDocuments = [], pluginsUrl }) {
+  const plugins = { autostart: [], pluginsData: [], options: {} };
+  if (canEdit && documentType === "word") {
+    plugins.autostart.push(PATTERNS_PLUGIN_GUID);
+    plugins.pluginsData.push(`${pluginsUrl}/patterns/config.json`);
+    plugins.options[PATTERNS_PLUGIN_GUID] = { patterns, patternGroups };
+  }
+  if (relatedDocuments.length) {
+    plugins.pluginsData.push(`${pluginsUrl}/related-documents/config.json`);
+    plugins.options[RELATED_DOCUMENTS_PLUGIN_GUID] = { relatedDocuments };
+  }
+  return plugins.pluginsData.length ? plugins : undefined;
 }
 
-function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, patterns, patternGroups, pluginsUrl, secret }) {
+function buildEditorConfig({ key, title, fileType, fileUrl, callbackUrl, user, permissions, returnUrl, patterns, patternGroups, relatedDocuments, pluginsUrl, secret }) {
   const canEdit = permissions.edit === true && EDITABLE_FILE_TYPES.has(fileType);
   // Sin `edit`, `review: true` abre en modo Revisión (solo sugerir cambios): OnlyOffice lo exige en mode "edit" con edit:false.
   const reviewOnly = !canEdit && permissions.review === true && REVIEWABLE_FILE_TYPES.has(fileType);
   const { documentType } = FILE_TYPES[fileType];
-  const plugins = patternsPlugin({ canEdit, documentType, patterns, patternGroups, pluginsUrl });
+  const plugins = editorPlugins({ canEdit, documentType, patterns, patternGroups, relatedDocuments, pluginsUrl });
   const config = {
     height: "100%",
     width: "100%",

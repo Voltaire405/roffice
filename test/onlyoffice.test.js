@@ -103,6 +103,22 @@ test("el plugin de Roffice solo se carga en el editor de texto en edición, con 
   assert.strictEqual(open({ patterns, fileType: "xlsx" }).editorConfig.plugins, undefined);
 });
 
+test("el plugin de documentos relacionados se carga en cualquier editor y modo, sin arrancar solo", () => {
+  const open = ({ fileType = "docx", edit = true, relatedDocuments }) =>
+    buildEditorConfig({ key: "k", title: "t", fileType, fileUrl: "u", callbackUrl: "c", user: { id: "u", name: "U" }, permissions: { edit }, pluginsUrl: "https://roffice/plugins", secret: "s", relatedDocuments });
+  const relatedDocuments = [{ title: "Ley", url: "https://roffice/related/tok" }];
+  const relatedGuid = require("../plugins/related-documents/config.json").guid;
+
+  const edicion = open({ relatedDocuments }).editorConfig.plugins;
+  assert.deepStrictEqual(edicion.pluginsData, ["https://roffice/plugins/patterns/config.json", "https://roffice/plugins/related-documents/config.json"]);
+  assert.ok(!edicion.autostart.includes(relatedGuid));
+  assert.deepStrictEqual(edicion.options[relatedGuid], { relatedDocuments });
+
+  const lectura = open({ relatedDocuments, edit: false, fileType: "xlsx" }).editorConfig.plugins;
+  assert.deepStrictEqual([lectura.pluginsData, lectura.autostart], [["https://roffice/plugins/related-documents/config.json"], []]);
+  assert.strictEqual(open({ relatedDocuments: [], edit: false }).editorConfig.plugins, undefined);
+});
+
 /** Ejecuta el script de la página del editor con un navegador simulado; los timers no corren hasta `fire()`. */
 function runEditorPage({ reloadsSoFar = 0 } = {}) {
   const vm = require("node:vm");

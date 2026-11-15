@@ -20,6 +20,7 @@ const servers = [];
 const puts = [];
 const grants = [];
 const commands = [];
+const storeClosed = [];
 let redis, ISS, STORE, RO;
 
 function listen(handler) {
@@ -64,6 +65,10 @@ before(async () => {
     const body = await readBody(req);
     if (req.url === "/doc.docx") return res.end("CONTENIDO-ORIGINAL");
     if (req.url === "/edited") return res.end("CONTENIDO-EDITADO");
+    // El storage etiqueta los PDF como octet-stream y puede partir la firma entre chunks.
+    if (req.url === "/ref.pdf") return res.setHeader("Content-Type", "application/octet-stream"), res.write("%P"), setImmediate(() => res.end("DF-1.7 REFERENCIA"));
+    if (req.url === "/endless.pdf") return res.write("%PDF-1.7 "), req.socket.on("close", () => storeClosed.push(req.url));
+    if (req.url === "/fake.pdf") return res.setHeader("Content-Type", "application/pdf"), res.end("<script>alert(1)</script>");
     if (req.url === "/save-url") return grants.push({ auth: req.headers.authorization, body: JSON.parse(body) }), res.end(JSON.stringify({ putUrl: `${STORE}/put` }));
     if (req.url === "/put") return puts.push({ ct: req.headers["content-type"], body: body.toString() }), res.end();
     res.statusCode = 404;
@@ -87,6 +92,7 @@ before(async () => {
     saveToTenant: createSaveToTenant({ tenants, oidc }),
     jwtSecret: JWT_SECRET,
     backendUrl: "http://roffice-interno",
+    relatedUrl: "http://roffice-publico/related",
     maxDocsPerUser: 1,
   });
   const app = createApp({ tenants, oidc, sessions, pool, jwtSecret: JWT_SECRET, publicUrl: "http://roffice-publico" });
@@ -145,6 +151,37 @@ test("ciclo de sesión: pestaña, proxy, callbacks, guardado en el tenant y rota
 
   const reopened = await openTab({ ...req, version: "v3" });
   assert.notStrictEqual(reopened.config.document.key, key, "tras status 2 la key rota");
+});
+
+test("Roffice sirve solo PDF como documentos relacionados, sin exponer su URL", async () => {
+  const relatedDocuments = [
+    { title: "Ley 1437", url: `${STORE}/ref.pdf` },
+    { title: "Falso", url: `${STORE}/fake.pdf` },
+    { title: "Perdido", url: `${STORE}/missing` },
+    { title: "Interminable", url: `${STORE}/endless.pdf` },
+  ];
+  const tab = await openTab({ ...req, docId: "relacionado.docx", relatedDocuments, user: { id: "relacionado", name: "Sol" } });
+  const page = await (await fetch(tab.url, { headers: { Cookie: tab.cookie } })).text();
+  assert.ok(page.includes("Ley 1437") && !page.includes(STORE), "la página lleva los títulos pero no las URLs");
+
+  const links = Object.values(tab.config.editorConfig.plugins.options).find((o) => o.relatedDocuments).relatedDocuments;
+  const fetchRelated = (index) => fetch(links[index].url.replace("http://roffice-publico", RO));
+  const pdf = await fetchRelated(0);
+  assert.deepStrictEqual(
+    [pdf.status, pdf.headers.get("content-type"), pdf.headers.get("content-disposition"), pdf.headers.get("x-content-type-options"), await pdf.text()],
+    [200, "application/pdf", "inline", "nosniff", "%PDF-1.7 REFERENCIA"]
+  );
+  assert.strictEqual((await fetchRelated(1)).status, 415, "lo que no empieza por %PDF- se rechaza aunque diga application/pdf");
+  assert.strictEqual((await fetchRelated(2)).status, 502, "el storage no lo entrega → 502");
+  assert.strictEqual((await fetch(`${RO}/related/inventado`)).status, 404, "token desconocido → 404");
+
+  const abort = new AbortController();
+  const endless = await fetch(links[3].url.replace("http://roffice-publico", RO), { signal: abort.signal });
+  await endless.body.getReader().read();
+  abort.abort();
+  for (let i = 0; i < 50 && !storeClosed.includes("/endless.pdf"); i++) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepStrictEqual(storeClosed, ["/endless.pdf"], "cortar la descarga cierra la conexión con el storage");
+  assert.strictEqual((await post("/api/sessions", { ...req, relatedDocuments: [{ title: "x" }] }, svc())).status, 400, "lista inválida → 400");
 });
 
 test("un usuario con otro documento abierto queda desconectado del anterior", async () => {

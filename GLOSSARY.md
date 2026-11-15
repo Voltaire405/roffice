@@ -16,6 +16,10 @@ _Evitar_: archivo, filename
 Edición en curso de un documento en una instancia, compartida por todos los usuarios que lo tienen abierto; termina cuando el último lo cierra.
 _Evitar_: sesión de OnlyOffice, documento abierto
 
+**Documento relacionado**:
+PDF que el tenant adjunta a la apertura de un documento para que el usuario lo consulte mientras redacta; el editor lo muestra desde «Extensiones» y no se edita ni se guarda.
+_Evitar_: documento de soporte, documento de referencia, adjunto, anexo, documento (a secas)
+
 **Instancia**:
 Un OnlyOffice Document Server del pool; todas las pestañas de una sesión de edición usan la misma.
 _Evitar_: servidor, nodo

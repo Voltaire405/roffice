@@ -25,6 +25,61 @@ function sendEditorError(res, status, message) {
   res.status(status).type("html").send(`<!doctype html><meta charset="utf-8"><title>Roffice</title><p>${message}</p>`);
 }
 
+const PDF_SIGNATURE = Buffer.from("%PDF-");
+
+/**
+ * Lee los primeros bytes antes de responder, porque el status depende de ellos.
+ * @returns {Promise<AsyncIterable<Buffer> | null>} el stream completo si empieza por la firma PDF; si no, null
+ */
+async function pdfOrNull(stream) {
+  const chunks = stream[Symbol.asyncIterator]();
+  let head = Buffer.alloc(0);
+  while (head.length < PDF_SIGNATURE.length) {
+    const { value, done } = await chunks.next();
+    if (done) break;
+    head = Buffer.concat([head, value]);
+  }
+  if (!head.subarray(0, PDF_SIGNATURE.length).equals(PDF_SIGNATURE)) {
+    stream.destroy();
+    return null;
+  }
+  return (async function* () {
+    yield head;
+    for (let next = await chunks.next(); !next.done; next = await chunks.next()) yield next.value;
+  })();
+}
+
+/**
+ * Proxy de lectura de una URL del tenant: así nunca viaja al navegador.
+ * Con `pdfOnly` se confía en los bytes y no en el Content-Type del storage, que suele ser octet-stream.
+ */
+async function relayTenantFile(res, sourceUrl, { pdfOnly = false } = {}) {
+  try {
+    const source = await fetch(sourceUrl);
+    if (!source.ok) {
+      logger.warn("Proxy", "El storage del cliente rechazó la lectura", { status: source.status });
+      return res.status(502).json({ error: "No se pudo leer el documento del cliente" });
+    }
+    res.set("Cache-Control", "no-store");
+    const body = Readable.fromWeb(source.body);
+    // pipeline no corta un generador que espera el siguiente chunk: sin esto, una descarga abortada deja abierta la conexión al storage.
+    res.on("close", () => body.destroy());
+    if (!pdfOnly) {
+      res.set("Content-Type", source.headers.get("content-type") || "application/octet-stream");
+      return await pipeline(body, res);
+    }
+    const pdf = await pdfOrNull(body);
+    if (!pdf) return res.status(415).json({ error: "El documento relacionado no es un PDF" });
+    // Contenido del tenant servido desde el origen de Roffice: sin nosniff, un HTML disfrazado ejecutaría en él.
+    res.set({ "Content-Type": "application/pdf", "Content-Disposition": "inline", "X-Content-Type-Options": "nosniff" });
+    await pipeline(pdf, res);
+  } catch (err) {
+    logger.error("Proxy", "Error leyendo el documento del cliente", { error: err.message });
+    if (res.headersSent) return res.destroy();
+    res.status(502).json({ error: "No se pudo leer el documento del cliente" });
+  }
+}
+
 /** Traduce un SessionError a HTTP; cualquier otro error sigue al manejador de Express (500). */
 function sessionErrorStatus(err) {
   if (!(err instanceof SessionError)) throw err;
@@ -105,8 +160,17 @@ function createApp({ tenants, oidc, sessions, pool, jwtSecret, publicUrl }) {
     }
   });
 
-  // Proxy de lectura: OnlyOffice no maneja bien las URLs prefirmadas virtual-hosted (ver APRENDIZAJES.md §2)
-  // y así la getUrl del cliente nunca viaja en el config que llega al navegador.
+  app.get("/related/:token", async (req, res) => {
+    let url;
+    try {
+      url = await sessions.relatedDocumentSource(req.params.token);
+    } catch (err) {
+      return res.status(sessionErrorStatus(err)).json({ error: err.message });
+    }
+    await relayTenantFile(res, url, { pdfOnly: true });
+  });
+
+  // OnlyOffice no maneja bien las URLs prefirmadas virtual-hosted (ver APRENDIZAJES.md §2).
   app.get("/files/:fileToken", async (req, res) => {
     let getUrl;
     try {
@@ -114,21 +178,7 @@ function createApp({ tenants, oidc, sessions, pool, jwtSecret, publicUrl }) {
     } catch (err) {
       return res.status(sessionErrorStatus(err)).json({ error: err.message });
     }
-
-    try {
-      const source = await fetch(getUrl);
-      if (!source.ok) {
-        logger.warn("Proxy", "El storage del cliente rechazó la lectura", { status: source.status });
-        return res.status(502).json({ error: "No se pudo leer el documento del cliente" });
-      }
-      res.set("Content-Type", source.headers.get("content-type") || "application/octet-stream");
-      res.set("Cache-Control", "no-store");
-      await pipeline(Readable.fromWeb(source.body), res);
-    } catch (err) {
-      logger.error("Proxy", "Error leyendo el documento del cliente", { error: err.message });
-      if (res.headersSent) return res.destroy();
-      res.status(502).json({ error: "No se pudo leer el documento del cliente" });
-    }
+    await relayTenantFile(res, getUrl);
   });
 
   // Un guardado fallido responde 500 + error ≠ 0 para que OnlyOffice no lo dé por persistido.

@@ -23,6 +23,7 @@ async function setup(t, { maxDocsPerUser = 1 } = {}) {
     },
     jwtSecret: "s",
     backendUrl: "http://roffice",
+    relatedUrl: "http://roffice-publico/related",
     maxDocsPerUser,
   });
   return { sessions, commands, saves, failSaves };
@@ -60,6 +61,27 @@ test("open acepta patternGroups anidados hasta 4 niveles y 500 nodos", async (t)
   await rejectsWith(openWith(leaves(501)), "invalid_request");
   await rejectsWith(openWith([{ label: "ambos", pattern: "p", children: [] }]), "invalid_request");
   await rejectsWith(openWith([{ label: "ninguno" }]), "invalid_request");
+});
+
+test("open valida los documentos relacionados y entrega al plugin un token por documento, no su URL", async (t) => {
+  const { sessions } = await setup(t);
+  const openWith = (relatedDocuments) => openTab(sessions, { ...request("a.docx"), relatedDocuments });
+  const relatedLinks = (tab) => Object.values(tab.config.editorConfig.plugins?.options ?? {}).find((o) => o.relatedDocuments)?.relatedDocuments;
+  const docs = Array.from({ length: 50 }, (_, i) => ({ title: `Referencia ${i}`, url: `https://storage/ref-${i}.pdf` }));
+
+  await rejectsWith(openWith({ title: "x", url: "https://x" }), "invalid_request");
+  await rejectsWith(openWith([{ title: "", url: "https://x" }]), "invalid_request");
+  await rejectsWith(openWith([{ title: "x", url: "javascript:alert(1)" }]), "invalid_request");
+  await rejectsWith(openWith([{ title: "x".repeat(201), url: "https://x" }]), "invalid_request");
+  await rejectsWith(openWith([...docs, docs[0]]), "invalid_request");
+
+  const links = relatedLinks(await openWith(docs));
+  assert.deepStrictEqual(links.map((link) => link.title), docs.map((doc) => doc.title));
+  assert.ok(links.every((link) => link.url.startsWith("http://roffice-publico/related/")), "el plugin recibe URLs de Roffice");
+  const tokenOf = (link) => link.url.split("/related/")[1];
+  assert.strictEqual(await sessions.relatedDocumentSource(tokenOf(links[49])), "https://storage/ref-49.pdf");
+  await rejectsWith(sessions.relatedDocumentSource("inventado"), "file_not_found");
+  assert.strictEqual(relatedLinks(await openTab(sessions, request("b.docx"))), undefined);
 });
 
 test("el enlace de un solo uso abre la pestaña con el config del editor", async (t) => {
