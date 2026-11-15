@@ -176,6 +176,11 @@ function renderEditorPage({ config, publicUrl }) {
 
     const editor = new DocsAPI.DocEditor("editor", { ...config, events: { onAppReady: appReady, onRequestClose: finishEditing } });
 
+    // Aviso al tenant de que esta página se va. Va con "*" porque Roffice no conoce el origen del opener y el mensaje no lleva datos.
+    // beforeunload y no pagehide: al cerrar la pestaña, Chrome descarta el postMessage entre sitios enviado en pagehide.
+    // Una recarga o el siguiente documento en la misma pestaña también lo disparan: el tenant confirma con tab.closed.
+    window.addEventListener("beforeunload", () => window.opener?.postMessage({ type: "roffice:tab-closed" }, "*"));
+
     // OnlyOffice llama a onRequestClose desde su botón de cerrar tras confirmar los cambios sin guardar;
     // al destruir el editor la sesión se libera y el guardado llega ~10 s después.
     function finishEditing() {

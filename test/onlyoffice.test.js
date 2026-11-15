@@ -128,13 +128,18 @@ function runEditorPage({ reloadsSoFar = 0 } = {}) {
 
   const storage = new Map(reloadsSoFar ? [["roffice-reloads:/editor/t", String(reloadsSoFar)]] : []);
   const timers = new Map();
-  const page = { reloads: 0, body: { textContent: "" }, events: null, storage, timers };
+  const listeners = {};
+  const page = { reloads: 0, body: { textContent: "" }, events: null, storage, timers, listeners, openerMessages: [] };
   vm.runInNewContext(script, {
     DocsAPI: { DocEditor: class { constructor(_id, options) { page.events = options.events; } destroyEditor() {} } },
     sessionStorage: { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) },
     location: { pathname: "/editor/t", reload: () => page.reloads++ },
     document: { body: page.body },
-    window: { close() {} },
+    window: {
+      close() {},
+      addEventListener: (type, fn) => (listeners[type] = fn),
+      opener: { postMessage: (message, targetOrigin) => page.openerMessages.push({ message, targetOrigin }) },
+    },
     setTimeout: (fn, ms) => (timers.set(timers.size + 1, { fn, ms }), timers.size),
     clearTimeout: (id) => timers.delete(id),
   });
@@ -155,6 +160,12 @@ test("la página del editor no se recarga si el editor arranca a tiempo, y olvid
   page.fire();
   assert.strictEqual(page.reloads, 0);
   assert.strictEqual(page.storage.has("roffice-reloads:/editor/t"), false);
+});
+
+test("la página del editor avisa al opener cuando se va, sin datos del documento", () => {
+  const page = runEditorPage();
+  page.listeners.beforeunload();
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(page.openerMessages)), [{ message: { type: "roffice:tab-closed" }, targetOrigin: "*" }]);
 });
 
 test("tras agotar los reintentos la página avisa en vez de quedarse en blanco ni recargar sin fin", () => {

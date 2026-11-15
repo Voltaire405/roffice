@@ -47,7 +47,8 @@ Angular ──JWT usuario──▶ Backend cliente ──token servicio──▶
 2. Angular pide abrir el documento a su backend con el JWT de Keycloak del usuario. El backend decide si el usuario puede editar o solo ver.
 3. El backend cliente llama `POST /api/sessions` con su token de servicio y recibe `{ editorUrl, expiresIn }`, que reenvía a Angular.
 4. Angular navega la pestaña: `tab.location = editorUrl`. El enlace es de un solo uso y vence en 60 s; Roffice lo canjea por una cookie `HttpOnly` de esa pestaña y redirige a `/editor/:tabId`, que carga el editor desde la URL pública de la instancia.
-5. Al guardar (callback 2 o 6), Roffice descarga el archivo de OnlyOffice, llama `POST saveUrl` del cliente para obtener un PUT prefirmado y sube el archivo. Esa llamada le sirve al backend cliente de aviso de que el documento cambió.
+5. Cuando la página del editor se va (cierre, recarga o el siguiente documento en la misma pestaña), envía al opener `postMessage({ type: "roffice:tab-closed" }, "*")` en `beforeunload`. El mensaje no lleva datos. Para distinguir un cierre real, Angular comprueba `tab.closed` unos cientos de ms después. No hace falta consultar `tab.closed` periódicamente. Si la pestaña se abre con `noopener`, no hay opener y el aviso no llega.
+6. Al guardar (callback 2 o 6), Roffice descarga el archivo de OnlyOffice, llama `POST saveUrl` del cliente para obtener un PUT prefirmado y sube el archivo. Esa llamada le sirve al backend cliente de aviso de que el documento cambió.
 
 ```ts
 async openEditor(docId: string) {
