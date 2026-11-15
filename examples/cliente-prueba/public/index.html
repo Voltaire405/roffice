@@ -25,6 +25,7 @@
     </select>
   </label>
   <p id="error"></p>
+  <p id="tabStatus" class="muted"></p>
 
   <details>
     <summary>Patrones del menú «Insertar patrón» (solo docx en edición)</summary>
@@ -170,6 +171,16 @@
         showError(err.message);
       }
     }
+
+    // El editor avisa en cada pagehide; solo es cierre si la pestaña ya no existe.
+    // ponytail: espera fija de 500 ms a que el navegador marque tab.closed; reintentar si algún navegador tarda más.
+    window.addEventListener("message", (event) => {
+      if (event.data?.type !== "roffice:tab-closed") return;
+      const tab = event.source;
+      setTimeout(() => {
+        if (tab.closed) $("tabStatus").textContent = `Pestaña del editor cerrada a las ${new Date().toLocaleTimeString()}.`;
+      }, 500);
+    });
 
     // La pestaña del editor es de otro origen: leer su location lanza excepción.
     function isBlank(tab) {
