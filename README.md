@@ -150,3 +150,7 @@ docker run --name roffice -d -p 13000:13000 --env-file .env roffice:latest
 ```
 
 Dentro del contenedor `localhost` es el propio contenedor: `REDIS_URL` y las URLs internas de `ONLYOFFICE_INSTANCES` deben apuntar a donde corren Redis y OnlyOffice (por ejemplo `host.docker.internal`).
+
+## Licencia
+
+[GNU AGPL v3](LICENSE).

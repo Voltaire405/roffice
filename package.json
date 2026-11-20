@@ -2,6 +2,7 @@
   "name": "onlyoffice-test",
   "version": "1.0.0",
   "description": "Router de sesiones de edición OnlyOffice para aplicaciones cliente",
+  "license": "AGPL-3.0-only",
   "main": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
